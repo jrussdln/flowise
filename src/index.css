@@ -1,0 +1,590 @@
+/* Import Tailwind v4 */
+@import "tailwindcss";
+
+/* Root defaults */
+html {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+  scroll-padding-top: 96px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+#root {
+  background-color: var(--bg-primary);
+  transition: background-color 0.3s ease;
+}
+
+/* ================================================
+   THEME VARIABLES
+   ================================================= */
+:root[data-theme="light"] {
+  /* Light theme — palette: Navy / Dusty Blue / Gray / Silver */
+  --bg-primary: #f4f7fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e9eef4;
+  --text-primary: #0a1628; /* Navy */
+  --text-secondary: #33465f; /* Navy-tinted gray */
+  --text-muted: #6b7f96; /* Dusty blue-gray */
+  --text-on-dark: #f4f7fa;
+  --hero-tagline: #1e293b; /* Dark tagline over hero image on light bg */
+  --accent: #4a6b8a; /* Deep dusty blue (readable accent on light) */
+  --accent-gold: #4a6b8a; /* legacy name — primary accent */
+  --accent-gold-light: #7a9bb5; /* Dusty Blue */
+  --accent-sage: #7a9bb5;
+  --accent-sage-dark: #4a6b8a;
+  --accent-brown: #0a1628; /* Navy */
+  --border-light: #dde4ea;
+  --border-medium: #c5c6c7; /* Gray */
+  --shadow-color: rgba(10, 22, 40, 0.08);
+  --shadow-hover: rgba(10, 22, 40, 0.16);
+  --overlay-light: rgba(244, 247, 250, 0.9);
+  --overlay-dark: rgba(10, 22, 40, 0.1);
+  --hero-img-filter: blur-sm;
+  --countdown-overlay: rgba(10, 22, 40, 0.15);
+  --header-bg: rgba(244, 247, 250, 0.55);
+  --header-border: rgba(197, 198, 199, 0.6);
+  --footer-border: #e3e9ef;
+  --card-bg: #ffffff;
+  --card-border: #dde4ea;
+  /* Glassmorphism surfaces (frosted cards / buttons / panels) */
+  --glass-bg: rgba(255, 255, 255, 0.5);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-edge: rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 8px 32px rgba(10, 22, 40, 0.1);
+  --glass-shadow-hover: 0 16px 44px rgba(10, 22, 40, 0.16);
+  --input-bg: #ffffff;
+  --input-border: #c5c6c7;
+  --scrollbar-thumb: rgba(10, 22, 40, 0.28);
+  --scrollbar-thumb-hover: rgba(10, 22, 40, 0.45);
+}
+
+:root[data-theme="dark"] {
+  /* Dark theme — palette: Navy / Dusty Blue / Gray / Silver */
+  --bg-primary: #0a1628; /* Navy */
+  --bg-secondary: #0f2038;
+  --bg-tertiary: #162941;
+  --text-primary: #eef2f7;
+  --text-secondary: #c5c6c7; /* Gray */
+  --text-muted: #93a4b8;
+  --text-on-dark: #eef2f7;
+  --hero-tagline: #ffffff; /* White tagline over hero image on dark bg */
+  --accent: #7a9bb5; /* Dusty Blue */
+  --accent-gold: #7a9bb5; /* legacy name — primary accent */
+  --accent-gold-light: #a9c3d7;
+  --accent-sage: #c0c0c0; /* Silver */
+  --accent-sage-dark: #9aa7b5;
+  --accent-brown: #c5c6c7; /* Gray */
+  --border-light: #1d3050;
+  --border-medium: #2b3f61;
+  --shadow-color: rgba(0, 0, 0, 0.35);
+  --shadow-hover: rgba(0, 0, 0, 0.55);
+  --overlay-light: rgba(10, 22, 40, 0.9);
+  --overlay-dark: rgba(238, 242, 247, 0.08);
+  --hero-img-filter: blur-sm brightness-75;
+  --countdown-overlay: rgba(0, 0, 0, 0.45);
+  --header-bg: rgba(10, 22, 40, 0.55);
+  --header-border: rgba(42, 61, 94, 0.7);
+  --footer-border: #162941;
+  --card-bg: #0f2038;
+  --card-border: #1d3050;
+  /* Glassmorphism surfaces (frosted cards / buttons / panels) */
+  --glass-bg: rgba(15, 32, 56, 0.5);
+  --glass-bg-strong: rgba(10, 22, 40, 0.75);
+  --glass-edge: rgba(238, 242, 247, 0.14);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --glass-shadow-hover: 0 16px 44px rgba(0, 0, 0, 0.5);
+  --input-bg: #162941;
+  --input-border: #2b3f61;
+  --scrollbar-thumb: rgba(197, 198, 199, 0.3);
+  --scrollbar-thumb-hover: rgba(197, 198, 199, 0.5);
+}
+
+/* ================================================
+   UNIVERSAL MODERN THIN SCROLLBAR (All Browsers)
+   ================================================= */
+
+/* --- WebKit Browsers (Chrome, Edge, Safari, Opera, Brave) --- */
+::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* --- Firefox --- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* --- Internet Explorer + Old Edge Legacy --- */
+html {
+  scroll-behavior: smooth;
+  -ms-overflow-style: -ms-autohiding-scrollbar;
+}
+
+/* Section veil: mostly --bg-secondary but translucent so the
+   fixed galaxy particle background shows through on every section. */
+.galaxy-veil {
+  background-color: var(--bg-secondary);
+  background-color: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+}
+
+/* --- Hide Scrollbar Utility (still universal) --- */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Animations: Sync Icon */
+.rotate-sync {
+  animation: spinEase 1.2s linear infinite;
+}
+
+@keyframes spinEase {
+  0% {
+    transform: rotate(0deg);
+    animation-timing-function: ease-in;
+  }
+  50% {
+    transform: rotate(720deg);
+    animation-timing-function: ease-out;
+  }
+  100% {
+    transform: rotate(1080deg);
+  }
+}
+
+/* ================================================
+   SCROLL REVEAL ANIMATIONS
+   ================================================= */
+.reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal.reveal-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger children inside .reveal-stagger */
+.reveal-stagger .reveal-child {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal-stagger.reveal-visible .reveal-child {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Fade up from left/right */
+.reveal-left {
+  opacity: 0;
+  transform: translateX(-50px);
+  transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal-right {
+  opacity: 0;
+  transform: translateX(50px);
+  transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal-left.reveal-visible,
+.reveal-right.reveal-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Scale-in for special elements */
+.reveal-scale {
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal-scale.reveal-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Shine Border Effect */
+.shine-border {
+  position: relative;
+  border-top: 4px solid var(--accent-gold);
+  overflow: hidden;
+}
+
+.shine-border::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -200px;
+  width: 200px;
+  height: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(122, 155, 181, 0.35) 30%,
+    rgba(122, 155, 181, 0.7) 50%,
+    rgba(122, 155, 181, 0.35) 70%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shineMove 1.5s linear infinite;
+}
+
+@keyframes shineMove {
+  0% {
+    left: -200px;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* ================================================
+   LOGO SHINE — same sweep pattern as the hirams
+   sidebar item: a 60%-wide gradient band that slides
+   from left:-150% to left:150% over 2.8s, clipped to
+   the logo box by overflow:hidden.
+   ================================================= */
+.logo-shine {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.logo-shine::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    120deg,
+    transparent,
+    rgba(255, 255, 255, 0.5),
+    transparent
+  );
+  animation: logoShineSweep 2.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes logoShineSweep {
+  0% {
+    left: -150%;
+  }
+  50% {
+    left: 150%;
+  }
+  100% {
+    left: 150%;
+  }
+}
+
+/* ================================================
+   TITLE SHINE — section headings catch the same light
+   band as the logo and sweep it across the glyphs,
+   left → right. The band lives in the heading's own
+   background clipped to the letters, so only the type
+   lights up and nothing shifts position.
+   ================================================= */
+.title-shine {
+  --shine-base: var(--text-primary);
+  --shine-band: color-mix(in srgb, var(--accent-gold-light) 70%, #ffffff);
+
+  /* Top layer: the band. Bottom layer: the flat base colour, so the
+     letters stay solid wherever the band isn't. */
+  background-image:
+    linear-gradient(
+      115deg,
+      transparent 35%,
+      var(--shine-band) 50%,
+      transparent 65%
+    ),
+    linear-gradient(var(--shine-base), var(--shine-base));
+  background-size: 300% 100%, 300% 100%;
+  background-position: 100% 0, 100% 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: titleShineSweep 3s ease-in-out infinite;
+}
+
+/* Both keyframe ends sit on plain base colour (the band is off-window),
+   so the loop has no seam. Travelling backwards through the 300%-wide
+   background is what makes the band read left → right. */
+@keyframes titleShineSweep {
+  0% {
+    background-position: 100% 0, 100% 0;
+  }
+  100% {
+    background-position: 0% 0, 0% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title-shine {
+    animation: none;
+  }
+}
+
+/* Browsers without background-clip:text would otherwise get invisible text. */
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .title-shine {
+    background-image: none;
+    color: var(--text-primary);
+    -webkit-text-fill-color: currentColor;
+    animation: none;
+  }
+}
+
+/* ================================================
+   THEME-AWARE UTILITY CLASSES
+   ================================================= */
+.bg-primary { background-color: var(--bg-primary); }
+.bg-secondary { background-color: var(--bg-secondary); }
+.bg-tertiary { background-color: var(--bg-tertiary); }
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-muted { color: var(--text-muted); }
+.text-on-dark { color: var(--text-on-dark); }
+.border-light { border-color: var(--border-light); }
+.border-medium { border-color: var(--border-medium); }
+.shadow-theme { box-shadow: 0 4px 20px var(--shadow-color); }
+.shadow-hover-theme { box-shadow: 0 8px 30px var(--shadow-hover); }
+.card-theme {
+  background-color: var(--card-bg);
+  border-color: var(--card-border);
+}
+.header-theme {
+  background-color: var(--header-bg);
+  border-color: var(--header-border);
+}
+.footer-theme {
+  border-color: var(--footer-border);
+}
+
+/* ================================================
+   GLASSMORPHISM SURFACES
+   =================================================
+   One shared frosted-glass treatment so cards, buttons and
+   panels match the header. Declared inside `@layer utilities`
+   so Tailwind hover variants (`hover:-translate-y-1`,
+   `hover:border-[var(--accent)]`) keep working by normal
+   cascade order. Border colors stay with each component so
+   edges remain readable in both themes.
+   ================================================= */
+@layer utilities {
+  /* Frosted card — Projects / Skills / Achievements / About */
+  .glass {
+    background-color: var(--glass-bg);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  }
+
+  .glass:hover {
+    box-shadow: var(--glass-shadow-hover), inset 0 1px 0 var(--glass-edge);
+  }
+
+  /* Denser frost — footer and modal panels, where legibility matters more */
+  .glass-strong {
+    background-color: var(--glass-bg-strong);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  }
+
+  /* Frosted pill / secondary action */
+  .glass-btn {
+    background-color: var(--glass-bg);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    backdrop-filter: blur(12px) saturate(150%);
+    box-shadow: inset 0 1px 0 var(--glass-edge);
+  }
+
+  .glass-btn:hover {
+    box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  }
+
+  /* Tint only — no backdrop-filter, for the many animated marquee chips */
+  .glass-chip {
+    background-color: var(--glass-bg);
+    box-shadow: inset 0 1px 0 var(--glass-edge);
+  }
+}
+
+/* Graceful fallback: without backdrop-filter, fall back to solid cards. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-strong,
+  .glass-btn,
+  .glass-chip {
+    background-color: var(--card-bg);
+  }
+}
+
+/* ================================================
+   IMAGE HOVER ZOOM EFFECT
+   ================================================= */
+.img-zoom {
+  transition: transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94), filter 0.4s ease;
+  transform-origin: center center;
+}
+
+.img-zoom:hover {
+  transform: scale(1.03);
+  filter: brightness(1.02);
+}
+
+/* For images inside containers that need constrained zoom */
+.img-zoom-contained {
+  overflow: hidden;
+}
+
+.img-zoom-contained .img-zoom {
+  transition: transform 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.img-zoom-contained:hover .img-zoom {
+  transform: scale(1.05);
+}
+
+/* ================================================
+   SKILLS MARQUEE (horizontal round-robin rows)
+   ================================================= */
+/* Soft edge fade so chips don't pop in/out at the card borders */
+.marquee-mask {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 5%, #000 95%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 5%, #000 95%, transparent 100%);
+}
+
+/* Track holds two identical copies of the chips (each chip has a trailing
+   margin), so shifting by exactly 50% loops seamlessly. */
+.marquee-track {
+  flex-wrap: nowrap;
+  animation: marquee-ltr var(--marquee-duration, 30s) linear infinite;
+  will-change: transform;
+}
+
+.marquee-track--rtl {
+  animation-name: marquee-rtl;
+}
+
+/* Left → right: start shifted left, slide back to origin */
+@keyframes marquee-ltr {
+  from {
+    transform: translate3d(-50%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Right → left: start at origin, slide out to the left */
+@keyframes marquee-rtl {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* Accessibility note: this marquee deliberately has no
+   `prefers-reduced-motion: reduce` freeze override — the scrolling row is the
+   only way the clipped chips past the container edge are reachable, so it
+   always animates. */
+
+/* ================================================
+   CERTIFICATE IMAGE SKELETON
+   =================================================
+   Shown inside achievement / training cards while the
+   certificate image is still loading, so the alt text
+   never flashes in place of the picture. The sweep reuses
+   the shineMove keyframes defined above.
+   ================================================= */
+.cert-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--overlay-dark);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.cert-skeleton::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -200px;
+  width: 200px;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(122, 155, 181, 0) 0%,
+    rgba(122, 155, 181, 0.28) 50%,
+    rgba(122, 155, 181, 0) 100%
+  );
+  animation: shineMove 1.6s linear infinite;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cert-skeleton,
+  .cert-skeleton::after {
+    animation: none;
+  }
+}
