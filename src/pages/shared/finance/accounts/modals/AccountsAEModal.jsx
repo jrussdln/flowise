@@ -41,7 +41,8 @@ const getFormFields = (cAccountType) => {
         ]
       : [];
 
-  return [...base, ...credit, { name: "bIsActive", label: "Active account", type: "checkbox" }];
+  /* Status is managed from the table's status button, not the form. */
+  return [...base, ...credit];
 };
 
 export default function AccountsAEModal({

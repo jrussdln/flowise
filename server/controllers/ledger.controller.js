@@ -13,7 +13,7 @@ import * as accountModel from "../models/account.model.js";
 import { getOwnerUuid } from "../utils/owner.js";
 import { parseId, sendError, sendValidation, createValidator } from "../utils/finance.js";
 
-const TYPES = ["IN", "OUT", "TRF"];
+const TYPES = ["IN", "OUT", "TRF", "PRC", "PAY", "LN"];
 const STATUSES = ["PENDING", "POSTED", "VOID"];
 
 async function requireOwner(req, res) {
@@ -22,7 +22,7 @@ async function requireOwner(req, res) {
   return ownerId;
 }
 
-function validate(body, { isNew = false } = {}) {
+function validate(body, { isNew = false, current = null } = {}) {
   const v = createValidator(body, { isNew });
 
   v.text("strCode", "Reference code", { max: 50 });
@@ -34,7 +34,21 @@ function validate(body, { isNew = false } = {}) {
   v.decimal("dFee", "Fee", { min: 0, max: 1_000_000 });
   v.text("strCurrency", "Currency", { max: 3 });
   v.oneOf("cType", "Type", TYPES, { required: true, fallback: "OUT" });
-  v.integer("nAccountId", "Account", { required: true });
+  v.integer("nAccountId", "Account");
+  /* Loan schedule entries are obligations, not tied to a paying
+     account — every other type must have one. On partial updates the
+     type often isn't in the payload, so fall back to the stored row;
+     and an account that's simply ABSENT (not being changed) is fine —
+     it only fails when it's explicitly sent as null, or missing on
+     create. */
+  const effectiveType = v.values.cType || current?.cType || null;
+  if (
+    effectiveType !== "LN" &&
+    v.values.nAccountId == null &&
+    (isNew || v.has("nAccountId"))
+  ) {
+    v.errors.nAccountId = "Account is required.";
+  }
   v.integer("nToAccountId", "Destination account");
   v.integer("nCategoryId", "Category");
   v.integer("nLoanId", "Loan");
@@ -42,6 +56,8 @@ function validate(body, { isNew = false } = {}) {
   v.date("dTransactionDate", "Transaction date");
   v.oneOf("cStatus", "Status", STATUSES, { required: true, fallback: "POSTED" });
   v.bool("bIsRecurring", { fallback: false });
+  /* Credit-card / purchase flag: whether the charge has been paid. */
+  v.bool("bIsPaid", { fallback: false });
   v.text("strNotes", "Notes", { max: 500 });
 
   /* Non-transfers never carry a destination account. */
@@ -132,7 +148,18 @@ export async function updateEntry(req, res) {
   const ownerId = await requireOwner(req, res);
   if (!ownerId) return;
 
-  const v = validate(req.body, { isNew: false });
+  /* Fetch the stored row first: the payload may not carry the type,
+     and validation needs it to know whether the account may be null
+     (Loan entries have none). */
+  let current;
+  try {
+    current = await ledgerModel.findById(id, ownerId);
+  } catch (err) {
+    return sendError(res, err, "load ledger entry", "ledger");
+  }
+  if (!current) return res.status(404).json({ ok: false, message: "Ledger entry not found." });
+
+  const v = validate(req.body, { isNew: false, current });
   if (Object.keys(v.errors).length > 0) return sendValidation(res, v.errors);
   if (Object.keys(v.values).length === 0) {
     return res.status(400).json({ ok: false, message: "No fields to update." });
@@ -143,8 +170,6 @@ export async function updateEntry(req, res) {
   try {
     let effective = v.values;
     if (!Object.hasOwn(v.values, "cType")) {
-      const current = await ledgerModel.findById(id, ownerId);
-      if (!current) return res.status(404).json({ ok: false, message: "Ledger entry not found." });
       effective = { ...v.values, cType: current.cType };
     }
     if (effective.cType !== "TRF") effective.nToAccountId = null;

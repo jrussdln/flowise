@@ -10,19 +10,25 @@ import {
   KeyboardArrowDownOutlined as ChevronDownIcon,
   PaymentsOutlined as CashIcon,
   PublishedWithChangesOutlined as StatusIcon,
+  SwapHorizOutlined as SwapIcon,
+  VisibilityOutlined as ViewIcon,
   Check as CheckIcon,
 } from "@mui/icons-material";
 import Table from "../../../../../components/ui/Table";
 import FilterCards from "../../../../../components/ui/FilterCards";
 import AccountsAEModal from "./AccountsAEModal";
+import ViewLedgerEntriesModal from "./ViewLedgerEntriesModal";
+import LedgerAEModal from "../../ledger/modals/LedgerAEModal";
 import { accountService } from "../../../../../services/accountService";
+import { ledgerService } from "../../../../../services/ledgerService";
 import { useContentChrome } from "../../../../../hooks/usePageChrome";
 import {
-  ADD_BUTTON_SX,
   PillBadge,
   RowActions,
+  accountBalance,
   buildCounts,
   contentHeader,
+  creditBalance,
   useToast,
 } from "../../shared";
 
@@ -79,6 +85,14 @@ export default function Accounts() {
      popover (tooltip-style) lists Active/Inactive. */
   const [statusAnchor, setStatusAnchor] = useState(null);
   const [statusRow, setStatusRow] = useState(null);
+
+  /* Read-only viewer: shows the ledger entries of one account. */
+  const [viewAccount, setViewAccount] = useState(null);
+
+  /* Quick transfer: opens the Ledger Add modal preset to a TRF from
+     this account (title + From account prefilled). */
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferForm, setTransferForm] = useState(null);
   const { showToast, toastNode } = useToast();
 
   const handleOpenAdd = useCallback(() => {
@@ -101,13 +115,21 @@ export default function Accounts() {
   const fetchAccounts = useCallback(async () => {
     setLoading(true);
     try {
-      /* Merge the live balances (vwaccountbalances) into each row. */
-      const [rows, balances] = await Promise.all([
+      /* Compute every balance live from the ledger entries so it
+         always agrees with the rows the user sees — voiding or
+         re-posting an entry instantly changes the balance. Credit
+         cards use limit − unpaid charges instead. */
+      const [rows, ledgerRows] = await Promise.all([
         accountService.list(),
-        accountService.balances().catch(() => []),
+        ledgerService.list().catch(() => []),
       ]);
-      const balanceMap = Object.fromEntries(balances.map((b) => [b.nAccountId, b.dBalance]));
-      setAccounts((rows || []).map((a) => ({ ...a, dBalance: balanceMap[a.nAccountId] })));
+      setAccounts(
+        (rows || []).map((a) => ({
+          ...a,
+          dBalance:
+            a.cAccountType === "CREDIT" ? creditBalance(a, ledgerRows) : accountBalance(a, ledgerRows),
+        }))
+      );
     } catch (err) {
       console.error("Error fetching accounts:", err);
       showToast(err.message || "Failed to load accounts", "error");
@@ -206,6 +228,101 @@ export default function Accounts() {
       console.error("Delete error:", err);
       showToast(err.message || "Failed to delete account", "error");
     }
+  };
+
+  /* Quick transfer from a row: presets the Ledger Add modal to a TRF
+     with the title and From account filled in. */
+  const handleOpenTransfer = (row) => {
+    setTransferForm({
+      strTitle: `Transfer - ${row.strName}`,
+      cType: "TRF",
+      dAmount: "",
+      dFee: "",
+      dTransactionDate: new Date().toISOString().slice(0, 10),
+      nAccountId: row.nAccountId,
+      nToAccountId: "",
+      nCategoryId: "",
+      strMerchant: "",
+      strReference: "",
+      cStatus: "POSTED",
+      strNotes: "",
+    });
+    setTransferOpen(true);
+  };
+  const handleCloseTransfer = () => {
+    if (saving) return;
+    setTransferOpen(false);
+    setTransferForm(null);
+  };
+  const handleSaveTransfer = async () => {
+    if (!transferForm.dAmount || Number(transferForm.dAmount) <= 0) {
+      showToast("Amount must be greater than zero.", "warning");
+      return;
+    }
+    if (!transferForm.nToAccountId) {
+      showToast("A transfer needs a destination account.", "warning");
+      return;
+    }
+
+    /* Insufficient funds: amount + fee must fit the From account's
+       balance (for credit cards, the available credit). */
+    const source = accounts.find((a) => a.nAccountId === Number(transferForm.nAccountId));
+    const fee = transferForm.dFee === "" || transferForm.dFee == null ? 0 : Number(transferForm.dFee);
+    const total = Number(transferForm.dAmount) + fee;
+    const balance = Number(source?.dBalance ?? 0);
+    if (source && total > balance) {
+      showToast(
+        `Amount + fee (₱${total.toLocaleString("en-PH", { minimumFractionDigits: 2 })}) exceeds ${source.strName}'s balance (₱${balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}).`,
+        "warning"
+      );
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await ledgerService.create({
+        strTitle: transferForm.strTitle.trim(),
+        cType: "TRF",
+        dAmount: Number(transferForm.dAmount),
+        dFee: transferForm.dFee === "" ? 0 : Number(transferForm.dFee),
+        dTransactionDate: transferForm.dTransactionDate,
+        nAccountId: Number(transferForm.nAccountId),
+        nToAccountId: Number(transferForm.nToAccountId),
+        nCategoryId: null,
+        strMerchant: transferForm.strMerchant?.trim() || null,
+        strReference: transferForm.strReference?.trim() || null,
+        cStatus: "POSTED",
+        strNotes: transferForm.strNotes?.trim() || null,
+      });
+      showToast("Transfer added successfully!");
+      handleCloseTransfer();
+      await fetchAccounts();
+    } catch (err) {
+      console.error("Transfer error:", err);
+      showToast(err.message || "Failed to save transfer", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /* Quick transfer from the header: opens the Ledger Add modal preset
+     to a TRF with nothing prefilled. */
+  const handleOpenTransferHeader = () => {
+    setTransferForm({
+      strTitle: "",
+      cType: "TRF",
+      dAmount: "",
+      dFee: "",
+      dTransactionDate: new Date().toISOString().slice(0, 10),
+      nAccountId: "",
+      nToAccountId: "",
+      nCategoryId: "",
+      strMerchant: "",
+      strReference: "",
+      cStatus: "POSTED",
+      strNotes: "",
+    });
+    setTransferOpen(true);
   };
 
   /* Popover-based status changer on the Actions cell. */
@@ -339,9 +456,47 @@ export default function Accounts() {
       format: (_, row) => {
         const stateKey = row.bIsActive !== false ? "active" : "inactive";
         const state = STATE_META[stateKey];
-        /* Status changer: opens a tooltip-style popover listing
-           Active/Inactive; picking one updates the row directly.
-           Rendered between Edit and Delete via RowActions' extra slot. */
+        /* View opens the account's ledger entries; status opens the
+           Active/Inactive popover. Both render between Edit and Delete
+           via RowActions' extra slot (Edit → View → Status → Delete). */
+        const viewButton = (
+          <Tooltip title="View ledger entries" arrow>
+            <IconButton
+              size="small"
+              aria-label={`View ledger entries of ${row.strName || "account"}`}
+              onClick={() => setViewAccount(row)}
+              sx={{
+                borderRadius: 1.5,
+                color: "#2563eb",
+                backgroundColor: "color-mix(in srgb, #2563eb 12%, transparent)",
+                "&:hover": {
+                  backgroundColor: "color-mix(in srgb, #2563eb 22%, transparent)",
+                },
+              }}
+            >
+              <ViewIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        );
+        const transferButton = (
+          <Tooltip title={`New transfer from ${row.strName || "account"}`} arrow>
+            <IconButton
+              size="small"
+              aria-label={`New transfer from ${row.strName || "account"}`}
+              onClick={() => handleOpenTransfer(row)}
+              sx={{
+                borderRadius: 1.5,
+                color: "#1565c0",
+                backgroundColor: "color-mix(in srgb, #1565c0 12%, transparent)",
+                "&:hover": {
+                  backgroundColor: "color-mix(in srgb, #1565c0 22%, transparent)",
+                },
+              }}
+            >
+              <SwapIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        );
         const statusButton = (
           <Tooltip title={`Change status (now: ${state.label})`} arrow>
             <IconButton
@@ -364,7 +519,7 @@ export default function Accounts() {
         return (
           <RowActions
             label={row.strName || "account"}
-            extra={statusButton}
+            extra={[viewButton, transferButton, statusButton]}
             onEdit={() => handleOpenEdit(row)}
             onDelete={() => handleDeleteAccount(row.nAccountId)}
           />
@@ -403,14 +558,61 @@ export default function Accounts() {
     () => (
       <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
         <Button
-          variant="contained"
           startIcon={<AddIcon />}
           onClick={handleOpenAdd}
           aria-label="Add account"
-          sx={ADD_BUTTON_SX}
+          sx={{
+            height: { xs: 30, sm: 34 },
+            minHeight: { xs: 30, sm: 34 },
+            px: { xs: 0.75, sm: 1.5 },
+            borderRadius: 2.5,
+            border: "1px solid",
+            borderColor: "var(--border-medium)",
+            backgroundColor: "var(--bg-secondary)",
+            color: "var(--accent)",
+            fontWeight: 600,
+            fontSize: { xs: "0.7rem", sm: "0.78rem" },
+            textTransform: "none",
+            whiteSpace: "nowrap",
+            "& .MuiButton-startIcon": { mr: { xs: 0, sm: 0.5 } },
+            "& svg": { fontSize: { xs: 15, sm: 17 } },
+            "&:hover": {
+              borderColor: "var(--accent)",
+              backgroundColor: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            },
+          }}
         >
           <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
             Account
+          </Box>
+        </Button>
+        <Button
+          startIcon={<SwapIcon />}
+          onClick={handleOpenTransferHeader}
+          aria-label="Add transfer"
+          sx={{
+            height: { xs: 30, sm: 34 },
+            minHeight: { xs: 30, sm: 34 },
+            px: { xs: 0.75, sm: 1.5 },
+            borderRadius: 2.5,
+            border: "1px solid",
+            borderColor: "var(--border-medium)",
+            backgroundColor: "var(--bg-secondary)",
+            color: "#1565c0",
+            fontWeight: 600,
+            fontSize: { xs: "0.7rem", sm: "0.78rem" },
+            textTransform: "none",
+            whiteSpace: "nowrap",
+            "& .MuiButton-startIcon": { mr: { xs: 0, sm: 0.5 } },
+            "& svg": { fontSize: { xs: 15, sm: 17 } },
+            "&:hover": {
+              borderColor: "#1565c0",
+              backgroundColor: "color-mix(in srgb, #1565c0 12%, transparent)",
+            },
+          }}
+        >
+          <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+            Transfer
           </Box>
         </Button>
       </Stack>
@@ -607,6 +809,29 @@ export default function Accounts() {
         formData={formData}
         onChange={handleFieldChange}
         saving={saving}
+      />
+
+      <ViewLedgerEntriesModal
+        open={Boolean(viewAccount)}
+        onClose={() => setViewAccount(null)}
+        account={viewAccount}
+        /* Any change inside the modal (status / pay / unpay) refreshes
+           the table behind it so balances stay in sync. */
+        onDataChange={fetchAccounts}
+      />
+
+      {/* Ledger Add modal, preset to a transfer from the chosen account. */}
+      <LedgerAEModal
+        open={transferOpen}
+        onClose={handleCloseTransfer}
+        onSave={handleSaveTransfer}
+        editingEntry={null}
+        formData={transferForm || {}}
+        onChange={(name, value) =>
+          setTransferForm((prev) => ({ ...prev, [name]: value }))
+        }
+        saving={saving}
+        accounts={accounts}
       />
 
       {toastNode}

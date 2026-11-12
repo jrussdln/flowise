@@ -1,10 +1,14 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Box, Button, IconButton, ListItemButton, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import {
   ReceiptLong as LedgerIcon,
   TrendingUp as TrendUpIcon,
   TrendingDown as TrendDownIcon,
   SwapHorizOutlined as SwapIcon,
+  ShoppingBagOutlined as PurchaseIcon,
+  PaymentOutlined as PaymentIcon,
+  HandshakeOutlined as LoanTypeIcon,
   KeyboardArrowDownOutlined as ChevronDownIcon,
   PublishedWithChangesOutlined as StatusIcon,
   Check as CheckIcon,
@@ -18,19 +22,26 @@ import { categoryService } from "../../../../../services/categoryService";
 import { useContentChrome } from "../../../../../hooks/usePageChrome";
 import {
   RowActions,
+  PillBadge,
+  accountBalance,
   buildCounts,
   contentHeader,
+  creditBalance,
   useToast,
 } from "../../shared";
 
 const CONTENT_HEADER = contentHeader(LedgerIcon, "Ledger");
 
-/* Colors + icons for the three movement types — each renders as a
-   tinted circle (like the dashboard's transaction rows): up arrow =
-   In, down arrow = Out, swap arrows = Transfer. */
+/* Colors + icons for the movement types — each renders as a tinted
+   circle (like the dashboard's transaction rows): up arrow = In,
+   down arrow = Out, shopping bag = Credit charge, card = Payment,
+   swap arrows = Transfer. */
 const TYPE_META = {
   IN: { label: "In", color: "#2e7d32", Icon: TrendUpIcon },
   OUT: { label: "Out", color: "#d32f2f", Icon: TrendDownIcon },
+  PRC: { label: "Credit", color: "#7b1fa2", Icon: PurchaseIcon },
+  PAY: { label: "Payment", color: "#00897b", Icon: PaymentIcon },
+  LN: { label: "Loan", color: "#e65100", Icon: LoanTypeIcon },
   TRF: { label: "Transfer", color: "#1565c0", Icon: SwapIcon },
 };
 
@@ -40,12 +51,29 @@ const STATUS_META = {
   VOID: { label: "Void", color: "var(--text-muted)" },
 };
 
+/* Today as YYYY-MM-DD (ISO dates compare correctly as strings). */
+const todayISO = () => {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+};
+
+const isThisMonth = (value) => {
+  if (!value) return false;
+  const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+};
+
 const TYPE_FILTER_OPTIONS = [
   { value: "all", label: "All Types" },
   { value: "IN", label: "In" },
   { value: "OUT", label: "Out" },
+  { value: "PRC", label: "Credit" },
+  { value: "PAY", label: "Payment" },
+  { value: "LN", label: "Loan" },
   { value: "TRF", label: "Transfer" },
 ];
+
 
 const STATUS_FILTER_OPTIONS = [
   { value: "all", label: "All Statuses" },
@@ -59,6 +87,8 @@ const STATUS_FILTER_OPTIONS = [
 const TYPE_ACTIONS = [
   { cType: "IN", label: "Inflow", Icon: TrendUpIcon, color: "#2e7d32" },
   { cType: "OUT", label: "Outflow", Icon: TrendDownIcon, color: "#d32f2f" },
+  { cType: "PRC", label: "Credit", Icon: PurchaseIcon, color: "#7b1fa2" },
+  { cType: "PAY", label: "Payment", Icon: PaymentIcon, color: "#00897b" },
   { cType: "TRF", label: "Transfer", Icon: SwapIcon, color: "#1565c0" },
 ];
 
@@ -76,9 +106,17 @@ const prettyDate = (value) =>
       })
     : "—";
 
-/* How the amount reads per type: money in, money out, or moved. */
-const AMOUNT_SIGN = { IN: "+", OUT: "−", TRF: "→" };
-const AMOUNT_COLOR = { IN: "#2e7d32", OUT: "#d32f2f", TRF: "var(--text-primary)" };
+/* How the amount reads per type: money in, money out, credit charge,
+   payment (leaves the paying account), moved. */
+const AMOUNT_SIGN = { IN: "+", OUT: "−", PRC: "−", PAY: "−", LN: "−", TRF: "→" };
+const AMOUNT_COLOR = {
+  IN: "#2e7d32",
+  OUT: "#d32f2f",
+  PRC: "#7b1fa2",
+  PAY: "#00897b",
+  LN: "#e65100",
+  TRF: "var(--text-primary)",
+};
 
 export default function Ledger() {
   const [entries, setEntries] = useState([]);
@@ -93,16 +131,25 @@ export default function Ledger() {
   const [editingEntry, setEditingEntry] = useState(null);
   const [formData, setFormData] = useState({});
   const [saving, setSaving] = useState(false);
-  const [typeFilter, setTypeFilter] = useState("all");
+  /* Type filter seeds from the URL (?type=LN etc.) — e.g. the loan
+     viewer's "View in Ledger" lands with the Loan card selected.
+     Unknown/missing values fall back to All Types. */
+  const [searchParams] = useSearchParams();
+  const urlType = searchParams.get("type");
+  const [typeFilter, setTypeFilter] = useState(
+    TYPE_FILTER_OPTIONS.some((o) => o.value === urlType) ? urlType : "all"
+  );
   const [statusFilter, setStatusFilter] = useState("all");
   /* Collapsible filter card — the header toggle hides/shows the rows. */
   const [filtersOpen, setFiltersOpen] = useState(true);
 
-  /* Inline status changer: the Actions cell has a status button whose
-     popover (tooltip-style) lists PENDING/POSTED/VOID. */
+  const { showToast, toastNode } = useToast();
+
+  /* Popover-based status changer on the Actions cell (IN/OUT/TRF only —
+     Credit charges and Payments are managed via the credit-card
+     viewer's Pay/Void tabs instead). */
   const [statusAnchor, setStatusAnchor] = useState(null);
   const [statusRow, setStatusRow] = useState(null);
-  const { showToast, toastNode } = useToast();
 
   /* Opens the Add modal with the movement type already fixed — the
      header's three icon buttons each preset one (no Type field inside). */
@@ -136,7 +183,16 @@ export default function Ledger() {
         categoryService.list({ activeOnly: true }).catch(() => []),
       ]);
       setEntries(rows || []);
-      setAccounts(accountRows || []);
+      /* Accounts carry their live balance, computed from the entries
+         themselves: credit cards use limit − unpaid charges, everyone
+         else opening balance + signed entries (VOID excluded). */
+      setAccounts(
+        (accountRows || []).map((a) => ({
+          ...a,
+          dBalance:
+            a.cAccountType === "CREDIT" ? creditBalance(a, rows || []) : accountBalance(a, rows || []),
+        }))
+      );
       setCategories(categoryRows || []);
     } catch (err) {
       console.error("Error fetching ledger:", err);
@@ -189,13 +245,30 @@ export default function Ledger() {
       showToast("Amount must be greater than zero.", "warning");
       return;
     }
-    if (!formData.nAccountId) {
+    if (formData.cType !== "LN" && !formData.nAccountId) {
       showToast("Source account is required.", "warning");
       return;
     }
     if (formData.cType === "TRF" && !formData.nToAccountId) {
       showToast("A transfer needs a destination account.", "warning");
       return;
+    }
+
+    /* Insufficient funds: money can't leave an account it doesn't
+       have — amount + fee must fit the source balance (for credit
+       cards, the available credit). Inflow is exempt. */
+    if (formData.cType !== "IN") {
+      const source = accounts.find((a) => a.nAccountId === Number(formData.nAccountId));
+      const fee = formData.dFee === "" || formData.dFee == null ? 0 : Number(formData.dFee);
+      const total = Number(formData.dAmount) + fee;
+      const balance = Number(source?.dBalance ?? 0);
+      if (source && total > balance) {
+        showToast(
+          `Amount + fee (₱${total.toLocaleString("en-PH", { minimumFractionDigits: 2 })}) exceeds ${source.strName}'s balance (₱${balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}).`,
+          "warning"
+        );
+        return;
+      }
     }
 
     setSaving(true);
@@ -206,14 +279,23 @@ export default function Ledger() {
         dAmount: Number(formData.dAmount),
         dFee: formData.dFee === "" ? 0 : Number(formData.dFee),
         dTransactionDate: formData.dTransactionDate || new Date().toISOString().slice(0, 10),
-        nAccountId: Number(formData.nAccountId),
+        /* Loan entries have no account (loan-level) — send null. */
+        nAccountId:
+          formData.cType === "LN" || !formData.nAccountId ? null : Number(formData.nAccountId),
         nToAccountId:
           formData.cType === "TRF" && formData.nToAccountId
             ? Number(formData.nToAccountId)
             : null,
         nCategoryId:
           formData.cType !== "TRF" && formData.nCategoryId ? Number(formData.nCategoryId) : null,
-        strMerchant: formData.strMerchant?.trim() || null,
+        /* Transfers record the From account's Bank/Provider as the
+           Merchant (e.g. "BPI") unless the user typed their own. */
+        strMerchant:
+          formData.cType === "TRF"
+            ? formData.strMerchant?.trim() ||
+              accounts.find((a) => a.nAccountId === Number(formData.nAccountId))?.strInstitution ||
+              null
+            : formData.strMerchant?.trim() || null,
         strReference: formData.strReference?.trim() || null,
         cStatus: formData.cStatus,
         strNotes: formData.strNotes?.trim() || null,
@@ -250,7 +332,6 @@ export default function Ledger() {
     }
   };
 
-  /* Popover-based status changer on the Actions cell. */
   const handleOpenStatus = (row, event) => {
     setStatusAnchor(event.currentTarget);
     setStatusRow(row);
@@ -281,6 +362,38 @@ export default function Ledger() {
     () => Object.fromEntries(categories.map((c) => [c.nCategoryId, c])),
     [categories]
   );
+
+  /* Loan payment entries indexed by the Reference they carry (the
+     ledger id of the Loan entry they pay) — used to detect payments
+     made AFTER the due date ("Late Payment"). */
+  const payByRef = useMemo(
+    () =>
+      new Map(
+        entries
+          .filter((e) => e.cType === "PAY" && e.strReference)
+          .map((e) => [String(e.strReference), e])
+      ),
+    [entries]
+  );
+
+  /* Loan entries show a bill-state badge instead of an account:
+     Paid (paid on/before the due date), Late Payment (paid but the
+     due date had passed when the payment landed), Overdue (unpaid,
+     due date passed), Billed (unpaid, due this month), Unbilled
+     (unpaid, due in a later month). */
+  const loanBadgeMeta = (row) => {
+    if (row.bIsPaid) {
+      const pay = payByRef.get(String(row.nLedgerId));
+      const late = pay && String(pay.dTransactionDate).slice(0, 10) > String(row.dTransactionDate).slice(0, 10);
+      return late
+        ? { label: "Late Payment", color: "#e65100" }
+        : { label: "Paid", color: "#2e7d32" };
+    }
+    if (String(row.dTransactionDate).slice(0, 10) < todayISO())
+      return { label: "Overdue", color: "#d32f2f" };
+    if (isThisMonth(row.dTransactionDate)) return { label: "Billed", color: "#d97706" };
+    return { label: "Unbilled", color: "var(--text-muted)" };
+  };
 
   const rowsWithNames = useMemo(
     () =>
@@ -414,42 +527,57 @@ export default function Ledger() {
     },
     {
       id: "accountName",
-      label: "Account",
+      /* In the Loan view the column shows each entry's bill state
+         instead of an account — the header reads "Status" and the
+         data centers. */
+      label: typeFilter === "LN" ? "Status" : "Account",
       minWidth: 170,
-      align: "right",
-      format: (_, row) => (
-        <Box sx={{ minWidth: 0, textAlign: "right" }}>
-          <Typography
-            variant="body2"
-            sx={{
-              color: "var(--text-primary)",
-              lineHeight: 1.25,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {row.cType === "TRF" && row.toAccountName
-              ? `${row.accountName} → ${row.toAccountName}`
-              : row.accountName}
-          </Typography>
-          {row.accountMeta && (
+      align: typeFilter === "LN" ? "center" : "right",
+      format: (_, row) => {
+        /* Loan entries have no account — the cell becomes their bill
+           state badge (Billed / Unbilled / Overdue / Paid / Late
+           Payment) instead. */
+        if (row.cType === "LN") {
+          return (
+            <Box sx={{ minWidth: 0, textAlign: "center" }}>
+              <PillBadge meta={loanBadgeMeta(row)} />
+            </Box>
+          );
+        }
+        return (
+          <Box sx={{ minWidth: 0, textAlign: "right" }}>
             <Typography
-              variant="caption"
+              variant="body2"
               sx={{
-                display: "block",
-                color: "var(--text-muted)",
+                color: "var(--text-primary)",
                 lineHeight: 1.25,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
             >
-              {row.accountMeta}
+              {row.cType === "TRF" && row.toAccountName
+                ? `${row.accountName} → ${row.toAccountName}`
+                : row.accountName}
             </Typography>
-          )}
-        </Box>
-      ),
+            {row.accountMeta && (
+              <Typography
+                variant="caption"
+                sx={{
+                  display: "block",
+                  color: "var(--text-muted)",
+                  lineHeight: 1.25,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {row.accountMeta}
+              </Typography>
+            )}
+          </Box>
+        );
+      },
     },
     {
       id: "dTransactionDate",
@@ -470,26 +598,40 @@ export default function Ledger() {
       format: (_, row) => {
         const status =
           STATUS_META[row.cStatus] || { label: row.cStatus, color: "var(--text-muted)" };
-        /* Status changer: opens a tooltip-style popover listing the
-           three statuses; picking one updates the row directly.
-           Rendered between Edit and Delete via RowActions' extra slot. */
-        const statusButton = (
-          <Tooltip title={`Change status (now: ${status.label})`} arrow>
-            <IconButton
-              size="small"
-              aria-label={`Change status of ${row.strTitle || "entry"}`}
-              onClick={(event) => handleOpenStatus(row, event)}
-              sx={{
-                borderRadius: 1.5,
-                color: status.color,
-                backgroundColor: `color-mix(in srgb, ${status.color} 12%, transparent)`,
-                "&:hover": {
-                  backgroundColor: `color-mix(in srgb, ${status.color} 22%, transparent)`,
-                },
-              }}
-            >
-              <StatusIcon fontSize="small" />
-            </IconButton>
+        /* Status button. Credit charges (PRC) and Payments (PAY) are
+           display-only — their lifecycle runs through the credit-card
+           viewer's Pay/Void tabs, so the button is disabled with a
+           status tooltip. IN/OUT/TRF open the status popover.
+           Loan (LN) rows hide the status AND delete buttons entirely —
+           loans are managed from the Loans page (activate/edit there
+           regenerates the schedule; deleting there also removes its
+           entries). Rendered via RowActions' extra slot. */
+        const statusLocked = row.cType === "PRC" || row.cType === "PAY";
+        const isLoan = row.cType === "LN";
+        const statusButton = isLoan ? null : (
+          <Tooltip
+            title={statusLocked ? `Status: ${status.label}` : `Change status (now: ${status.label})`}
+            arrow
+          >
+            <span>
+              <IconButton
+                size="small"
+                aria-label={`${statusLocked ? "Status of" : "Change status of"} ${row.strTitle || "entry"}`}
+                disabled={statusLocked}
+                onClick={(event) => handleOpenStatus(row, event)}
+                sx={{
+                  borderRadius: 1.5,
+                  color: status.color,
+                  backgroundColor: `color-mix(in srgb, ${status.color} 12%, transparent)`,
+                  ...(statusLocked && {
+                    opacity: 0.55,
+                    cursor: "not-allowed",
+                  }),
+                }}
+              >
+                <StatusIcon fontSize="small" />
+              </IconButton>
+            </span>
           </Tooltip>
         );
         return (
@@ -497,7 +639,8 @@ export default function Ledger() {
             label={row.strTitle || "entry"}
             extra={statusButton}
             onEdit={() => handleOpenEdit(row)}
-            onDelete={() => handleDeleteEntry(row.nLedgerId)}
+            /* No delete callback → RowActions hides the Delete button. */
+            onDelete={isLoan ? undefined : () => handleDeleteEntry(row.nLedgerId)}
           />
         );
       },
@@ -508,7 +651,10 @@ export default function Ledger() {
     () =>
       rowsWithNames.filter(
         (e) =>
-          (typeFilter === "all" || e.cType === typeFilter) &&
+          /* Loan entries only appear when the Loan filter card is
+             selected — they're managed from the Loans page, so the
+             default "All Types" view hides them. */
+          (typeFilter === "all" ? e.cType !== "LN" : e.cType === typeFilter) &&
           (statusFilter === "all" || e.cStatus === statusFilter)
       ),
     [rowsWithNames, typeFilter, statusFilter]
@@ -709,7 +855,7 @@ export default function Ledger() {
         searchFields={["strTitle", "strMerchant", "strReference", "accountName", "accountMeta", "categoryName"]}
       />
 
-      {/* Tooltip-style popover on the Actions status button. */}
+      {/* Tooltip-style popover on the Actions status button (IN/OUT/TRF). */}
       <Popover
         open={Boolean(statusAnchor) && Boolean(statusRow)}
         anchorEl={statusAnchor}

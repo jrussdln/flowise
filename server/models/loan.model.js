@@ -16,7 +16,6 @@ export const WRITABLE_FIELDS = [
   "nTermMonths",
   "dMonthlyPayment",
   "dStartDate",
-  "dEndDate",
   "nPaymentDay",
   "cStatus",
   "strNotes",

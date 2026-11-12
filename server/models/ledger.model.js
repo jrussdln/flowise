@@ -26,6 +26,7 @@ export const WRITABLE_FIELDS = [
   "dTransactionDate",
   "cStatus",
   "bIsRecurring",
+  "bIsPaid",
   "strNotes",
 ];
 

@@ -15,6 +15,7 @@ import { useCallback, useState } from "react";
 import { Alert, Box, IconButton, Snackbar, Stack, Typography } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import { categoryService } from "../../../services/categoryService";
 
 /** Content-card header: accent icon + uppercase page label. Call at
     module level so the node's identity stays stable across renders. */
@@ -76,40 +77,47 @@ export function PillBadge({ meta, fallback }) {
 
 /** Edit + delete icon buttons for a row's Actions cell (tinted boxes).
  *  `extra` renders between the two (e.g. Ledger's status button). */
-export function RowActions({ onEdit, onDelete, label = "record", extra = null }) {
+export function RowActions({ onEdit, onDelete, label = "record", extra = null, leading = null }) {
   return (
     <Box sx={{ display: "flex", gap: 0.75, justifyContent: "center" }}>
-      <IconButton
-        size="small"
-        aria-label={`Edit ${label}`}
-        onClick={onEdit}
-        sx={{
-          borderRadius: 1.5,
-          color: "var(--accent)",
-          backgroundColor: "color-mix(in srgb, var(--accent) 12%, transparent)",
-          "&:hover": {
-            backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent)",
-          },
-        }}
-      >
-        <EditIcon fontSize="small" />
-      </IconButton>
+      {leading}
+      {/* Edit/Delete render only when their callbacks exist (some
+          statuses hide them, e.g. Active loans). */}
+      {onEdit && (
+        <IconButton
+          size="small"
+          aria-label={`Edit ${label}`}
+          onClick={onEdit}
+          sx={{
+            borderRadius: 1.5,
+            color: "var(--accent)",
+            backgroundColor: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            "&:hover": {
+              backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent)",
+            },
+          }}
+        >
+          <EditIcon fontSize="small" />
+        </IconButton>
+      )}
       {extra}
-      <IconButton
-        size="small"
-        aria-label={`Delete ${label}`}
-        onClick={onDelete}
-        sx={{
-          borderRadius: 1.5,
-          color: "#f44336",
-          backgroundColor: "color-mix(in srgb, #f44336 12%, transparent)",
-          "&:hover": {
-            backgroundColor: "color-mix(in srgb, #f44336 22%, transparent)",
-          },
-        }}
-      >
-        <DeleteIcon fontSize="small" />
-      </IconButton>
+      {onDelete && (
+        <IconButton
+          size="small"
+          aria-label={`Delete ${label}`}
+          onClick={onDelete}
+          sx={{
+            borderRadius: 1.5,
+            color: "#f44336",
+            backgroundColor: "color-mix(in srgb, #f44336 12%, transparent)",
+            "&:hover": {
+              backgroundColor: "color-mix(in srgb, #f44336 22%, transparent)",
+            },
+          }}
+        >
+          <DeleteIcon fontSize="small" />
+        </IconButton>
+      )}
     </Box>
   );
 }
@@ -153,6 +161,100 @@ export const buildCounts = (rows, field, options) =>
       .filter((o) => o.value !== "all")
       .map((o) => [o.value, rows.filter((r) => r[field] === o.value).length]),
   ]);
+
+/** Live balance for a non-credit account, computed from its ledger
+    entries so it always agrees with what the UI shows: opening
+    balance + inflows − outflows/charges/payments/transfers-out
+    (+ transfer-ins). VOID entries don't count at all, and PENDING
+    ones don't either — money only moves once POSTED. */
+export function accountBalance(account, ledgerRows) {
+  if (!account) return null;
+  let bal = Number(account.dOpeningBalance || 0);
+  for (const e of ledgerRows || []) {
+    if (e.cStatus === "VOID" || e.cStatus === "PENDING") continue;
+    const amount = Number(e.dAmount || 0);
+    const total = amount + Number(e.dFee || 0);
+    if (e.nAccountId === account.nAccountId) {
+      if (e.cType === "IN") bal += amount;
+      else if (e.cType === "TRF") bal -= total;
+      else if (e.cType === "OUT" || e.cType === "PRC" || e.cType === "PAY") bal -= total;
+    } else if (e.cType === "TRF" && e.nToAccountId === account.nAccountId) {
+      bal += amount;
+    }
+  }
+  return bal;
+}
+
+/** Credit-card balance = the credit limit minus the total of unpaid,
+    POSTED Credit charges (amount + fee) on that card — i.e. the
+    credit still available to spend. Pending and voided charges don't
+    count. Returns null for non-credit accounts (callers keep their
+    own balance there). */
+export function creditBalance(account, ledgerRows) {
+  if (!account || account.cAccountType !== "CREDIT") return null;
+  const unpaid = (ledgerRows || [])
+    .filter(
+      (e) =>
+        e.nAccountId === account.nAccountId &&
+        e.cType === "PRC" &&
+        e.bIsPaid !== true &&
+        e.cStatus !== "VOID" &&
+        e.cStatus !== "PENDING"
+    )
+    .reduce((sum, e) => sum + Number(e.dAmount || 0) + Number(e.dFee || 0), 0);
+  return Number(account.dCreditLimit || 0) - unpaid;
+}
+
+/** Sample loan payment schedule. Payments land on the Payment Day of
+    each month AFTER the start, through the end month (started Oct,
+    3-month term → Nov, Dec, Jan). Amount per month: the Monthly
+    Payment, or — when only the rate is known — the principal plus
+    the flat interest charged on the FULL principal every month:
+    principal × (1 + rate% × term) ÷ term. Returns null when a
+    schedule can't be derived. */
+export function loanSchedule(loan) {
+  const term = Number(loan?.nTermMonths);
+  if (!loan?.dStartDate || !term || term <= 0) return null;
+  const hasMonthlyPayment = loan.dMonthlyPayment !== "" && loan.dMonthlyPayment != null;
+  const hasInterestRate = loan.dInterestRate !== "" && loan.dInterestRate != null;
+  if (!hasMonthlyPayment && !hasInterestRate) return null;
+  const amount = hasMonthlyPayment
+    ? Number(loan.dMonthlyPayment)
+    : (Number(loan.dPrincipal || 0) * (1 + (Number(loan.dInterestRate || 0) / 100) * term)) / term;
+  const [y, m, d] = String(loan.dStartDate).split("-").map(Number);
+  const payDay = Number(loan.nPaymentDay) || d;
+  const entries = [];
+  for (let i = 1; i <= term; i++) {
+    const month = new Date(y, m - 1 + i, 1);
+    const lastDay = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+    const due = new Date(month.getFullYear(), month.getMonth(), Math.min(payDay, lastDay));
+    entries.push({
+      label: `${month.toLocaleDateString("en-US", { month: "long" })} ${month.getFullYear()}`,
+      due: due.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "2-digit" }),
+      date: `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(
+        due.getDate()
+      ).padStart(2, "0")}`,
+      amount,
+    });
+  }
+  return entries;
+}
+
+/** Find a category by exact name (case-insensitive), creating it if
+    it doesn't exist yet. Returns its id, or null when lookups fail. */
+export async function ensureCategory(name) {
+  try {
+    const cats = await categoryService.list().catch(() => []);
+    const found = (cats || []).find(
+      (c) => (c.strName || "").toLowerCase() === String(name).toLowerCase()
+    );
+    if (found) return found.nCategoryId;
+    const created = await categoryService.create({ strName: name });
+    return created?.nCategoryId ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /** Shared chrome for the Add buttons (matches the Users page). */
 export const ADD_BUTTON_SX = {

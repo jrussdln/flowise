@@ -26,7 +26,6 @@ function validate(body, { isNew = false } = {}) {
   v.integer("nTermMonths", "Term", { min: 1, max: 1200 });
   v.decimal("dMonthlyPayment", "Monthly payment", { min: 0, max: 1_000_000_000 });
   v.date("dStartDate", "Start date", { required: true });
-  v.date("dEndDate", "End date");
   v.integer("nPaymentDay", "Payment day", { min: 1, max: 31 });
   v.oneOf("cStatus", "Status", STATUSES, { required: true, fallback: "ACTIVE" });
   v.text("strNotes", "Notes", { max: 500 });

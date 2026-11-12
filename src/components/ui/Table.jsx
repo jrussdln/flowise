@@ -72,7 +72,7 @@ export default function Table({
   loading = false,
   emptyMessage = "No records found",
   pageSizeOptions = [5, 10, 25],
-  initialPageSize = 5,
+  initialPageSize = 10,
 }) {
   /* The search field lives in the page header (HeaderSearch); this
      table only consumes the shared term and publishes its placeholder
