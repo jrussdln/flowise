@@ -1,55 +1,42 @@
 import React from "react";
-import { Box, Dialog, IconButton, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Dialog, IconButton, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import CheckIcon from "@mui/icons-material/Check";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import Logo from "./Logo";
 
 /**
- * Reusable modal built on MUI Dialog, styled as detached rounded "bubble"
- * pieces: a standalone circular icon bubble on top (reflecting the modal
- * type), a title bubble, a content bubble, and a bottom row of standalone
- * circular buttons — ✕ to cancel/close and ✓ to save — instead of the old
- * labeled footer buttons.
+ * Reusable modal built on MUI Dialog. On small screens it renders as a
+ * bottom sheet — pinned to the bottom, up to ~55vh, rounded top
+ * corners; from `sm` up it is a normal centered modal: one solid
+ * rounded card with a header row (type icon + title + close ✕), a
+ * scrollable body, and a labeled footer — Cancel and Save buttons
+ * (plus any extra `actions`).
  *
  * Props:
  * - open: boolean — controls visibility
- * - onClose: () => void — close icon, backdrop and Escape
- * - onCancel: () => void — optional: what ✕ does instead of onClose
- *   (e.g. a dialog with an inner form steps back to its list first)
- * - type: "add" | "edit" | "delete" | "view" — the icon bubble + ✓ colour
- * - title: string | ReactNode — header title (left-aligned in its bubble)
- * - subtitle: string | ReactNode — optional text beside the title
+ * - onClose: () => void — close icon, Cancel, backdrop and Escape
+ * - onCancel: () => void — optional: what ✕/Cancel does instead of
+ *   onClose (e.g. a dialog with an inner form steps back to its list)
+ * - type: "add" | "edit" | "delete" | "view" — header icon + Save colour
+ * - title: string | ReactNode — header title
+ * - subtitle: string | ReactNode — optional text under the title
  * - children: ReactNode — modal body content
- * - onSave: () => void — the round ✓ button; omit for read-only dialogs
- * - saveLabel: string — tooltip of the ✓ button, default "Save"
- * - saving: boolean — shows a saving state and disables both buttons
- * - saveDisabled: boolean — disables just the ✓ (e.g. a form whose
+ * - onSave: () => void — the labeled Save button; omit for read-only
+ *   dialogs
+ * - saveLabel: string — label of the Save button, default "Save"
+ * - saving: boolean — shows a saving state and disables all buttons
+ * - saveDisabled: boolean — disables just Save (e.g. a form whose
  *   chosen payment source cannot cover the amount yet)
- * - actions: ReactNode — optional labeled buttons in a rounded pill next
- *   to the circles, for dialogs that need more than save/close
+ * - actions: ReactNode — optional extra labeled buttons in the footer,
+ *   for dialogs that need more than save/close
  * - maxWidth: MUI breakpoint size, default "sm"
  * - fullWidth: boolean, default true
- * - disableClose: boolean — hides ✕ and disables backdrop/Escape close
+ * - disableClose: boolean — hides ✕/Cancel and disables backdrop/Escape
+ *   close
  */
-
-/* Shared "bubble" styling — each detached piece is its own floating card. */
-const bubbleSx = {
-  borderRadius: "1rem",
-  backgroundColor: "var(--bg-secondary)",
-  border: "1px solid var(--border-light)",
-  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06)",
-};
-
-/* The buttons in the bottom row are the same bubble, as a 40px circle. */
-const circleSx = {
-  ...bubbleSx,
-  width: 40,
-  height: 40,
-  borderRadius: "50%",
-};
 
 const TYPE_ICON = {
   add: AddCircleOutlineIcon,
@@ -63,6 +50,16 @@ const TYPE_COLOR = {
   edit: "#d97706",
   delete: "#dc2626",
   view: "#2563eb",
+};
+
+/* MUI breakpoint sizes in px, used to cap the centered dialog width
+   from `sm` up (the `maxWidth` prop names a breakpoint). */
+const DIALOG_MAX_WIDTH_PX = {
+  xs: 444,
+  sm: 600,
+  md: 900,
+  lg: 1200,
+  xl: 1920,
 };
 
 export default function ModalComponent({
@@ -81,8 +78,7 @@ export default function ModalComponent({
   maxWidth = "sm",
   fullWidth = true,
   disableClose = false,
-}) {
-  const handleClose = (_event, reason) => {
+}) {  const handleClose = (_event, reason) => {
     if (disableClose) return;
     if (saving && (reason === "backdropClick" || reason === "escapeKeyDown")) return;
     onClose?.();
@@ -91,71 +87,91 @@ export default function ModalComponent({
   const TypeIcon = TYPE_ICON[type] ?? TYPE_ICON.add;
   const typeColor = TYPE_COLOR[type] ?? TYPE_COLOR.add;
 
+  const handleCancel = () => (onCancel ? onCancel() : onClose?.());
+
   return (
     <Dialog
       open={open}
       onClose={handleClose}
       maxWidth={maxWidth}
       fullWidth={fullWidth}
+      /* On xs the modal becomes a bottom sheet: pinned to the bottom,
+         up to ~half the screen, with rounded top corners. From sm up it
+         stays a normal centered dialog. */
+      sx={{
+        "& .MuiDialog-container": {
+          alignItems: { xs: "flex-end", sm: "center" },
+        },
+      }}
       slotProps={{
         paper: {
           sx: {
-            borderRadius: 0,
-            backgroundColor: "transparent",
-            boxShadow: "none",
+            borderRadius: { xs: "32px 32px 0 0", sm: 4 },
+            border: "1px solid var(--border-light)",
+            backgroundColor: "var(--card-bg)",
             backgroundImage: "none",
+            margin: { xs: 0, sm: "auto" },
+            width: "100%",
+            /* Bottom sheet spans the screen below sm; from sm up the
+               card is centered and capped by the `maxWidth` prop's pixel
+               size (MUI breakpoint values). NOTE: `xs` in sx is the base
+               style, so the sm+ entry is what keeps the dialog from
+               expanding to the page width. */
+            maxWidth: {
+              xs: "100%",
+              sm: `min(${DIALOG_MAX_WIDTH_PX[maxWidth] ?? 600}px, 100%)`,
+            },
+            maxHeight: { xs: "70vh", sm: "calc(100% - 64px)" },
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
           },
         },
         backdrop: {
           sx: {
             backgroundColor: "rgba(10, 22, 40, 0.6)",
-       
           },
         },
       }}
     >
+      {/* DRAG HANDLE — the small pill centered at the top of the bottom
+          sheet (xs only; the centered dialog has no use for it) */}
+      <Box
+        sx={{
+          display: { xs: "flex", sm: "none" },
+          justifyContent: "center",
+          pt: 1.25,
+        }}
+      >
+        <Box
+          sx={{
+            width: 44,
+            height: 4,
+            borderRadius: 999,
+            backgroundColor: "var(--border-medium)",
+          }}
+        />
+      </Box>
+
+      {/* HEADER — type icon, title/subtitle, close ✕ on the right */}
       <Box
         sx={{
           display: "flex",
-          flexDirection: "column",
           alignItems: "center",
           gap: 1.5,
-          p: 1,
+          px: { xs: 2, sm: 3 },
+          py: 2,
+          borderBottom: "1px solid var(--border-light)",
         }}
       >
-        {/* Standalone circular type icon bubble — same style as the buttons below */}
-        <Box
-          sx={{
-            ...circleSx,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <TypeIcon sx={{ fontSize: 18, color: typeColor }} />
-        </Box>
-
-        {/* Title / subtitle bubble — single compact row */}
-        <Box
-          sx={{
-            ...bubbleSx,
-            width: "fit-content",
-            maxWidth: "100%",
-            display: "flex",
-            alignItems: "baseline",
-            gap: 0.75,
-            px: 1.5,
-            py: 0.5,
-          }}
-        >
+        <TypeIcon sx={{ fontSize: 22, color: typeColor, flexShrink: 0 }} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography
-            variant="caption"
+            variant="subtitle1"
             sx={{
               fontWeight: 600,
               color: "var(--text-primary)",
-              whiteSpace: "nowrap",
-              fontSize: "0.75rem",
-              minWidth: 0,
+              lineHeight: 1.3,
               overflow: "hidden",
               textOverflow: "ellipsis",
             }}
@@ -167,83 +183,92 @@ export default function ModalComponent({
               variant="caption"
               sx={{
                 color: "var(--text-muted)",
-                whiteSpace: "nowrap",
-                fontSize: "0.7rem",
-                flexShrink: 0,
+                fontWeight: 300,
+                fontStyle: "italic",
+                display: "block",
+                mt: -0.25,
               }}
             >
               {subtitle}
             </Typography>
           )}
         </Box>
+        {!disableClose && (
+          <IconButton
+            aria-label="close"
+            onClick={handleCancel}
+            disabled={saving}
+            size="small"
+            sx={{ color: "var(--text-muted)", flexShrink: 0 }}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        )}
+      </Box>
 
-        {/* Content bubble — body only, scrolling on its own when it is tall */}
+      {/* BODY — scrolls on its own when the content is tall. On xs it
+          fills the bottom sheet (paper caps at 55vh); on sm+ it keeps
+          its own height cap so the card stays centered and compact. */}
+      <Box
+        sx={{
+          px: { xs: 2, sm: 3 },
+          py: 2.5,
+          color: "var(--text-secondary)",
+          flex: { xs: 1, sm: "0 1 auto" },
+          minHeight: 0,
+          maxHeight: { xs: "none", sm: "min(60vh, 640px)" },
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+        }}
+      >
+        {children}
+      </Box>
+
+      {/* FOOTER — logo on the left, labeled buttons right-aligned */}
+      {(actions || onSave || !disableClose) && (
         <Box
           sx={{
-            ...bubbleSx,
-            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1.5,
             px: { xs: 2, sm: 3 },
-            py: 2.5,
-            color: "var(--text-secondary)",
-            maxHeight: "min(60vh, 640px)",
-            overflowY: "auto",
-            overscrollBehavior: "contain",
+            py: 2,
+            borderTop: "1px solid var(--border-light)",
           }}
         >
-          {children}
+          <Logo imgClassName="h-6" className="flex-shrink-0" />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {actions}
+            {!disableClose && (
+              <Button
+                variant="text"
+                onClick={handleCancel}
+                disabled={saving}
+                sx={{ textTransform: "none", fontWeight: 600, color: "var(--text-muted)" }}
+              >
+                Cancel
+              </Button>
+            )}
+            {onSave && (
+              <Button
+                variant="contained"
+                onClick={onSave}
+                disabled={saving || saveDisabled}
+                disableElevation
+                sx={{
+                  textTransform: "none",
+                  fontWeight: 600,
+                  backgroundColor: typeColor,
+                  "&:hover": { backgroundColor: typeColor, opacity: 0.9 },
+                }}
+              >
+                {saving ? "Saving…" : saveLabel}
+              </Button>
+            )}
+          </Box>
         </Box>
-
-        {/* Bottom row — standalone ✕ / ✓ circles (+ optional labeled actions) */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          {!disableClose && (
-            <Tooltip title="Close">
-              <span>
-                <IconButton
-                  aria-label="close"
-                  onClick={() => (onCancel ? onCancel() : onClose?.())}
-                  disabled={saving}
-                  size="small"
-                  sx={{ ...circleSx, color: "var(--text-muted)" }}
-                >
-                  <CloseIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-          )}
-
-          {actions && (
-            <Box
-              sx={{
-                ...bubbleSx,
-                display: "flex",
-                alignItems: "center",
-                gap: 0.5,
-                px: 0.75,
-                py: 0.35,
-                borderRadius: "999px",
-              }}
-            >
-              {actions}
-            </Box>
-          )}
-
-          {onSave && (
-            <Tooltip title={saving ? "Saving…" : saveLabel}>
-              <span>
-                <IconButton
-                  aria-label={saveLabel}
-                  onClick={onSave}
-                  disabled={saving || saveDisabled}
-                  size="small"
-                  sx={{ ...circleSx, color: typeColor }}
-                >
-                  <CheckIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-          )}
-        </Box>
-      </Box>
+      )}
     </Dialog>
   );
 }

@@ -9,39 +9,17 @@
    ------------------------------------------------------------------ */
 
 import express from "express";
-import { handleContact } from "./contact.js";
 import authRouter from "./routes/auth.route.js";
-import budgetPlansRouter from "./routes/budgetPlans.route.js";
-import cardsRouter from "./routes/cards.route.js";
-import entriesRouter from "./routes/entries.route.js";
+import usersRouter from "./routes/users.route.js";
+import accountsRouter from "./routes/accounts.route.js";
 import loansRouter from "./routes/loans.route.js";
 import savingsRouter from "./routes/savings.route.js";
-import transactionsRouter from "./routes/transactions.route.js";
-import usersRouter from "./routes/users.route.js";
+import ledgerRouter from "./routes/ledger.route.js";
+import categoriesRouter from "./routes/categories.route.js";
 
 const app = express();
 app.set("trust proxy", true);
 app.use(express.json({ limit: "16kb" }));
-
-app.post("/api/contact", async (req, res) => {
-  try {
-    const { status, body } = await handleContact({
-      body: req.body,
-      headers: req.headers,
-      ip: req.ip,
-    });
-    res.status(status).json(body);
-  } catch (err) {
-    console.error("[contact] unexpected error:", err);
-    res.status(500).json({ ok: false, message: "Unexpected server error." });
-  }
-});
-
-/* Wrong method on an existing endpoint -> 405. */
-app.all("/api/contact", (_req, res) => {
-  res.setHeader("Allow", "POST");
-  res.status(405).json({ ok: false, message: "Method not allowed" });
-});
 
 /* Auth API — login/logout/session (routes -> controller -> model). */
 app.use("/api/auth", authRouter);
@@ -49,23 +27,12 @@ app.use("/api/auth", authRouter);
 /* Users API — routes -> controllers -> models (Supabase). */
 app.use("/api/users", usersRouter);
 
-/* Transactions API — Income/Expense ledger. */
-app.use("/api/transactions", transactionsRouter);
-
-/* Loans API — pending/active loans per user. */
+/* Finance APIs — all scoped to the signed-in user (server/utils/owner.js). */
+app.use("/api/accounts", accountsRouter);
 app.use("/api/loans", loansRouter);
-
-/* Savings API — pending/active savings goals per user. */
 app.use("/api/savings", savingsRouter);
-
-/* Budget Plans API — named plans per user (no money attached). */
-app.use("/api/budget-plans", budgetPlansRouter);
-
-/* Cards API — the user's debit + credit cards (tblcards). */
-app.use("/api/cards", cardsRouter);
-
-/* Entries API — payment schedules generated on loan activation. */
-app.use("/api/entries", entriesRouter);
+app.use("/api/ledger", ledgerRouter);
+app.use("/api/categories", categoriesRouter);
 
 /* Unknown /api paths -> JSON 404. */
 app.use("/api", (_req, res) => res.status(404).json({ ok: false, message: "Not found" }));

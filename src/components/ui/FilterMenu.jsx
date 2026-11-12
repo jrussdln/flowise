@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
+import { Button, Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import CheckIcon from "@mui/icons-material/Check";
@@ -43,34 +43,52 @@ export default function FilterMenu({ value, onChange, options = [], counts = {},
         sx={{
           /* Match the height of a size="small" MUI text field exactly:
              8.5px ×2 padding + 23px line-height = 40px (the search bar
-             beside it), not the button default of ~31px. */
+             beside it), not the button default of ~31px. On mobile the
+             button collapses to an icon-only square. */
           boxSizing: "border-box",
-          height: 40,
-          minHeight: 40,
-          minWidth: { xs: 110, sm: 160 },
+          height: { xs: 32, sm: 36 },
+          minHeight: { xs: 32, sm: 36 },
+          minWidth: { xs: 32, sm: 140 },
           alignItems: "center",
-          justifyContent: "flex-start",
+          justifyContent: "center",
           color: "var(--text-primary)",
           borderColor: "var(--border-medium)",
           backgroundColor: "var(--bg-secondary)",
           textTransform: "none",
           fontWeight: 600,
-          fontSize: { xs: "0.75rem", sm: "0.875rem" },
+          fontSize: { xs: "0.7rem", sm: "0.8rem" },
           borderRadius: 3,
-          px: { xs: 1, sm: 1.5 },
+          px: { xs: 0.5, sm: 1.25 },
+          "& svg": { fontSize: { xs: 15, sm: 16 } },
           whiteSpace: "nowrap",
-          "& .MuiButton-startIcon": { ml: { xs: 0, sm: 0.5 } },
-          "& .MuiButton-endIcon": { ml: "auto", mr: { xs: 0, sm: 0.5 } },
+          "& .MuiButton-startIcon": {
+            /* MUI gives startIcon asymmetric margins (-2px left, ~8px
+               right) to sit next to a label. With the label hidden on
+               mobile those margins survive and push the funnel off
+               center — so zero them on xs only. */
+            ml: { xs: 0, sm: 0.5 },
+            mr: { xs: 0, sm: 1 },
+          },
+          "& .MuiButton-endIcon": {
+            ml: "auto",
+            mr: { xs: 0, sm: 0.5 },
+            display: { xs: "none", sm: "flex" },
+          },
           "&:hover": {
             borderColor: "var(--accent)",
             backgroundColor: "var(--bg-secondary)",
           },
         }}
       >
-        {current?.label ?? value ?? "All"}
-        {currentCount != null && (
-          <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>&nbsp;({currentCount})</span>
-        )}
+        <Box
+          component="span"
+          sx={{ display: { xs: "none", sm: "inline" } }}
+        >
+          {current?.label ?? value ?? "All"}
+          {currentCount != null && (
+            <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>&nbsp;({currentCount})</span>
+          )}
+        </Box>
       </Button>
 
       <Menu

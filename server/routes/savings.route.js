@@ -1,22 +1,19 @@
 /* ------------------------------------------------------------------
    Routes for /api/savings — thin wiring only; logic lives in the
-   controller. GET/POST list+create; GET/PUT/DELETE /:id. Mounted by
-   server/app.js, which api/index.js runs as Vercel's single function.
+   controller. Mounted by server/app.js (shared by local dev and Vercel).
    ------------------------------------------------------------------ */
 
 import { Router } from "express";
-import * as savingController from "../controllers/saving.controller.js";
+import * as savingsController from "../controllers/savings.controller.js";
 
 const router = Router();
 
-router.get("/", savingController.listSavings);
-router.post("/", savingController.createSaving);
-router.get("/:id", savingController.getSaving);
-router.put("/:id", savingController.updateSaving);
-router.delete("/:id", savingController.deleteSaving);
+router.get("/", savingsController.listSavings);
+router.post("/", savingsController.createSavings);
+router.get("/:id", savingsController.getSavings);
+router.put("/:id", savingsController.updateSavings);
+router.delete("/:id", savingsController.deleteSavings);
 
-/* Wrong method on an existing path -> 405 (matches loans.route.js).
-   Registered after the real routes so they always win. */
 const methodNotAllowed = (allow) => (_req, res) => {
   res.setHeader("Allow", allow);
   res.status(405).json({ ok: false, message: "Method not allowed" });

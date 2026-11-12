@@ -34,9 +34,9 @@ if (fs.existsSync(distDir)) {
   app.use((_req, res) => res.status(404).send("dist/ not found — run `npm run build` first."));
 }
 
-app.listen(PORT, () => {
-  console.log(`→ API server running at http://localhost:${PORT}/api/contact`);
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.warn("⚠ SMTP_USER / SMTP_PASS are not set — copy .env.example to .env first.");
-  }
+/* Dual-stack bind: "::" with ipv6Only:false accepts both IPv6 loopback
+   (::1) and IPv4 loopback (127.0.0.1), so browsers and tools agree no
+   matter which address they resolve "localhost" to. */
+app.listen({ port: PORT, host: "::", ipv6Only: false }, () => {
+  console.log(`→ API server running at http://localhost:${PORT}/api`);
 });

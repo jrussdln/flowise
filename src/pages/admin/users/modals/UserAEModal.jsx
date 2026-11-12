@@ -15,13 +15,13 @@ const getFormFields = (isEdit = false) => [
   },
   { name: "strEmail", label: "Email Address", type: "email", required: true, gridCols: 6 },
   { name: "strPhoneNo", label: "Phone Number", type: "phone", gridCols: 6 },
-  { name: "dtBirthDate", label: "Birth Date", type: "date", gridCols: 6 },
+  { name: "dtBirthDate", label: "Birth Date", type: "date", gridCols: 4 },
   {
     name: "cType",
     label: "User Type",
     type: "select",
     required: true,
-    gridCols: 6,
+    gridCols: 4,
     options: [
       { label: "User", value: "U" },
       { label: "Admin", value: "A" },
@@ -32,7 +32,7 @@ const getFormFields = (isEdit = false) => [
     label: "Status",
     type: "select",
     required: true,
-    gridCols: 6,
+    gridCols: 4,
     options: [
       { label: "Active", value: "A" },
       { label: "Inactive", value: "I" },
@@ -47,9 +47,14 @@ export default function UserAEModal({ open, onClose, onSave, editingUser, formDa
     <ModalComponent
       open={open}
       onClose={onClose}
-      title={editingUser ? `Edit User #${editingUser.nUserId}` : "Add User"}
+      title={editingUser ? "Edit User" : "Add User"}
+      subtitle={
+        editingUser
+          ? formData.strUserName || `User #${editingUser.nUserId}`
+          : "Fill in the details to create a new user account."
+      }
       type={editingUser ? "edit" : "add"}
-      maxWidth="md"
+      maxWidth="sm"
       onSave={onSave}
       saveLabel={saving ? "Saving…" : editingUser ? "Save changes" : "Create user"}
       saving={saving}

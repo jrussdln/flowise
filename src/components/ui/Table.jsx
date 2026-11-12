@@ -1,325 +1,193 @@
 /* ------------------------------------------------------------------
-   Reusable table on MUI: built-in sorting, pagination, row numbers,
-   loading skeleton and (optional) a sticky header with an internally
-   scrolling body.
+   Page-level data table: a normal table inside one bordered panel —
+   a header row with the column labels, one row per record with light
+   horizontal rules, and a standard MUI pagination footer (themed).
+   rows-per-page + prev/next on the right). Column cells can be plain
+   values or custom renderers via `format`.
 
-   Used by DataTable.jsx (which adds the page chrome — title, search,
-   "Add" button — on top of it).
+   Filtering/searching lives outside the table: the search field is in
+   the page header (HeaderSearch) and filter menus + action buttons
+   are published to the content header via useContentChrome.
 
    Props:
-   - columns: [{
-       key: string,                 // property read from the row
-       label: string,
-       align?: "left" | "right" | "center",
-       minWidth?: number,           // px, column width floor
-       render?: (row, rowIndex) => ReactNode,   // overrides row[key]
-       sortable?: boolean,          // default: true unless col.isAction
-       sortValue?: (row) => string | number,    // overrides row[key] when sorting
-       isAction?: boolean           // not sortable, cells centre themselves
-     }]
-   - rows: array of data objects
-   - getRowId: (row, rowIndex) => key   (defaults to row.id)
-   - rowsPerPageOptions: selectable page sizes
-     (default ["All", 10, 25, 50, 100])
-   - defaultRowsPerPage: initial page size (default 10)
-   - emptyMessage: text shown when rows is empty
-   - loading: renders skeleton rows instead of data
-   - skeletonRowCount: skeleton rows while loading (default: rowsPerPage)
-   - maxHeight: body height (px number or CSS size, default "35vh"). When
-     set, the header sticks and the body scrolls inside the Paper instead
-     of growing the page. Pass null for the table's natural height.
-   - pageResetKey: any value — changing it jumps back to page 1
-     (DataTable passes the search term so a new search starts at page 1)
-   - sx: extra styles merged into the Paper
-
-   Alignment:
-   - Header cells are always centred; body cells default to "left".
-   - col.align applies to body cells only, so a column's data can line
-     up (e.g. right) while its header label stays centred.
-
-   Sorting:
-   - Click a column header to sort ascending; click again for
-     descending. Clicking a *different* column always starts ascending.
-   - Uses col.sortValue(row) if provided, else row[col.key]; strings
-     compare case-insensitively (with numeric awareness), numbers and
-     dates compare naturally, nulls sort first.
-
-   A "#" column is prepended automatically, numbered across sorting and
-   pagination.
-
-   Example:
-     <Table
-       columns={[
-         { key: "strSource", label: "Source" },
-         { key: "cCategory", label: "Category", align: "center" },
-         { key: "dAmount", label: "Amount", align: "right",
-           render: (row) => `₱${Number(row.dAmount).toLocaleString()}` },
-       ]}
-       rows={entries}
-       getRowId={(row) => row.nTransactionId}
-       loading={isFetching}
-     />
+   - columns: [{ id, label, align?, minWidth?, format?(value, row) }]
+        `id` is the row property, `format` becomes the cell renderer,
+        `align` maps to the cell's text alignment, and `minWidth`
+        suggests the column width.
+   - rows: data objects
+   - rowKey: unique per row (falls back to nUserId, then id)
+   - searchPlaceholder / searchFields: client-side filtering. The
+        search field itself lives in the page header (HeaderSearch);
+        the table only consumes the shared term, and searchPlaceholder
+        becomes the header field's placeholder text.
+   - loading: shows skeleton rows
+   - emptyMessage: shown when no (filtered) rows match
+   - pageSizeOptions / initialPageSize: pagination footer options
    ------------------------------------------------------------------ */
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Box,
+  Skeleton,
   Table as MuiTable,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
-  TableSortLabel,
-  Paper,
-  Skeleton,
 } from "@mui/material";
-import Pagination from "./Pagination";
-import { skeletonBar } from "./skeletonStyles";
+import { useSearch } from "../../hooks/useSearch";
+
+/* Theme-aware table chrome, painted through CSS variables. */
+const cellBaseSx = {
+  borderBottom: "1px solid var(--border-light)",
+  color: "var(--text-primary)",
+};
+
+const headCellSx = {
+  ...cellBaseSx,
+  /* Override the light default MUI paints behind sticky header cells so
+     the header follows the theme (dark mode included). */
+  backgroundColor: "var(--bg-secondary)",
+  fontWeight: 600,
+  fontSize: "0.7rem",
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  color: "var(--text-muted)",
+  whiteSpace: "nowrap",
+};
+
+const bodyCellSx = {
+  ...cellBaseSx,
+  py: 1,
+};
 
 export default function Table({
   columns = [],
   rows = [],
-  getRowId = (row, rowIndex) => row.id ?? rowIndex,
-  rowsPerPageOptions = [{ label: "All", value: -1 }, 10, 25, 50, 100],
-  defaultRowsPerPage = 25,
-  emptyMessage = "No records found.",
+  rowKey,
+  searchPlaceholder = "Search...",
+  searchFields,
   loading = false,
-  skeletonRowCount,
-  maxHeight = "60vh",
-  minWidth,
-  pageResetKey,
-  sx,
+  emptyMessage = "No records found",
+  pageSizeOptions = [5, 10, 25],
+  initialPageSize = 5,
 }) {
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(defaultRowsPerPage);
-  const [orderBy, setOrderBy] = useState(null);
-  const [order, setOrder] = useState("asc");
+  /* The search field lives in the page header (HeaderSearch); this
+     table only consumes the shared term and publishes its placeholder
+     so the header describes what is searchable here. */
+  const { searchTerm, setPlaceholder } = useSearch();
 
-  const handlePageChange = (_event, newPage) => setPage(newPage);
-  const handleRowsPerPageChange = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  const handleSort = (col) => {
-    if (orderBy === col.key) {
-      setOrder((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setOrderBy(col.key);
-      setOrder("asc");
-    }
-    setPage(0);
-  };
-
-  /* A new search (or any external filter) starts back at page 1. */
   useEffect(() => {
-    setPage(0);
-  }, [pageResetKey]);
+    setPlaceholder(searchPlaceholder);
+    return () => setPlaceholder("Search…");
+  }, [searchPlaceholder, setPlaceholder]);
 
-  const isShowingAll = rowsPerPage === -1;
+  /* Pagination state for the footer. */
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(initialPageSize);
 
-  /* Row numbers keep counting across pages: "#11" is page 2, row 1. */
-  const firstRowIndex = isShowingAll ? 0 : page * rowsPerPage;
+  const fieldsToSearch = useMemo(() => {
+    if (searchFields && searchFields.length > 0) return searchFields;
+    return columns.map((col) => col.id);
+  }, [searchFields, columns]);
 
-  const allColumns = useMemo(
-    () => [
-      {
-        key: "__rowNumber",
-        label: "#",
-        align: "center",
-        sortable: false,
-        minWidth: 48,
-        render: (_row, rowIndex) => firstRowIndex + rowIndex + 1,
-      },
-      ...columns,
-    ],
-    [columns, firstRowIndex]
+  const filteredRows = useMemo(() => {
+    if (!searchTerm.trim()) return rows;
+    const term = searchTerm.toLowerCase();
+    return rows.filter((row) =>
+      fieldsToSearch.some((field) => {
+        const val = row[field];
+        if (val === null || val === undefined) return false;
+        return String(val).toLowerCase().includes(term);
+      })
+    );
+  }, [rows, searchTerm, fieldsToSearch]);
+
+  const count = filteredRows.length;
+  const pageCount = Math.max(1, Math.ceil(count / pageSize));
+
+  /* Keep the current page valid when the row set shrinks (search or
+     filter narrowing the list) — derived during render instead of a
+     setState-in-effect, so the clamp applies without extra renders. */
+  const safePage = Math.min(page, pageCount - 1);
+
+  const paginatedRows = useMemo(
+    () => filteredRows.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    [filteredRows, safePage, pageSize]
   );
 
-  const sortedRows = useMemo(() => {
-    const activeCol = allColumns.find((col) => col.key === orderBy);
-    if (!activeCol) return rows;
+  const renderCell = (col, row) => {
+    if (col.format) return col.format(row[col.id], row);
+    const value = row[col.id];
+    return value === null || value === undefined || value === "" ? "—" : String(value);
+  };
 
-    const getValue = activeCol.sortValue
-      ? activeCol.sortValue
-      : (row) => row[activeCol.key];
+  const getRowId = (row, rowIndex) =>
+    rowKey ? row[rowKey] : row.nUserId ?? row.id ?? rowIndex;
 
-    const compare = (a, b) => {
-      const valA = getValue(a);
-      const valB = getValue(b);
-
-      if (valA == null && valB == null) return 0;
-      if (valA == null) return -1;
-      if (valB == null) return 1;
-
-      if (typeof valA === "string" || typeof valB === "string") {
-        return String(valA).localeCompare(String(valB), undefined, {
-          numeric: true,
-          sensitivity: "base",
-        });
-      }
-
-      if (valA < valB) return -1;
-      if (valA > valB) return 1;
-      return 0;
-    };
-
-    const sorted = [...rows].sort(compare);
-    return order === "asc" ? sorted : sorted.reverse();
-  }, [rows, allColumns, orderBy, order]);
-
-  /* Keep the page inside the page count when rows disappear (a search,
-     a delete) — otherwise MUI warns about an out-of-range page and the
-     table shows an empty body. */
-  const pageCount = isShowingAll
-    ? 1
-    : Math.max(1, Math.ceil(sortedRows.length / rowsPerPage));
-  useEffect(() => {
-    if (page > pageCount - 1) setPage(pageCount - 1);
-  }, [page, pageCount]);
-
-  const safePage = Math.min(page, pageCount - 1);
-  const paginatedRows = isShowingAll
-    ? sortedRows
-    : sortedRows.slice(safePage * rowsPerPage, safePage * rowsPerPage + rowsPerPage);
-
-  const skeletonCount = skeletonRowCount ?? (isShowingAll ? rows.length : rowsPerPage);
+  const colWidth = (col) => (col.minWidth ? { width: col.minWidth } : undefined);
 
   return (
-    <Paper
-      variant="outlined"
+    <Box
       sx={{
-        borderRadius: "0.75rem",
+        width: "100%",
+        border: "1px solid var(--border-medium)",
+        borderRadius: 3,
+        backgroundColor: "var(--card-bg)",
         overflow: "hidden",
-        borderColor: "var(--border-medium)",
-        backgroundColor: "var(--glass-bg-strong)",
-        backdropFilter: "blur(12px)",
-        boxShadow: "var(--glass-shadow)",
-        ...sx,
       }}
     >
-      <TableContainer sx={maxHeight ? { maxHeight } : undefined}>
-        <MuiTable
-          size="small"
-          stickyHeader={Boolean(maxHeight)}
-          aria-label="data table"
-          sx={minWidth ? { minWidth } : undefined}
-        >
+      <TableContainer>
+        <MuiTable size="small" stickyHeader>
+          {/* COLUMN LABELS — all centered */}
           <TableHead>
-            <TableRow sx={{ backgroundColor: "var(--overlay-dark)" }}>
-              {allColumns.map((col) => {
-                const isSortable = col.sortable ?? !col.isAction;
-                /* Headers always centre — col.align only moves the body
-                   cells, so e.g. an Amount column can right-align its
-                   values under a centred label. */
-                const align = "center";
-
-                return (
-                  <TableCell
-                    key={col.key}
-                    align={align}
-                    sortDirection={orderBy === col.key ? order : false}
-                    sx={{
-                      fontWeight: 500,
-                      fontSize: "0.8rem",
-                      color: "var(--text-muted)",
-                      borderColor: "var(--border-light)",
-                      whiteSpace: "nowrap",
-                      /* Column width floor — declared on the header only,
-                         which is enough for the browser to size the column. */
-                      minWidth: col.minWidth,
-                      /* Sticky headers must be opaque or the rows show
-                         through while the body scrolls. */
-                      ...(maxHeight && { backgroundColor: "var(--card-bg)" }),
-                    }}
-                  >
-                    {isSortable ? (
-                      <TableSortLabel
-                        active={orderBy === col.key}
-                        direction={orderBy === col.key ? order : "asc"}
-                        onClick={() => handleSort(col)}
-                        sx={{
-                          color: "var(--text-muted)",
-                          "&.Mui-active": { color: "var(--accent)" },
-                          "& .MuiTableSortLabel-icon": {
-                            color: "inherit",
-                            opacity: 0.6,
-                          },
-                        }}
-                      >
-                        {col.label}
-                      </TableSortLabel>
-                    ) : (
-                      col.label
-                    )}
-                  </TableCell>
-                );
-              })}
+            <TableRow>
+              {columns.map((col) => (
+                <TableCell key={col.id} align="center" sx={headCellSx}>
+                  {col.label}
+                </TableCell>
+              ))}
             </TableRow>
           </TableHead>
+
           <TableBody>
             {loading ? (
-              Array.from({ length: skeletonCount }).map((_, rowIndex) => (
-                <TableRow key={`skeleton-row-${rowIndex}`} sx={{ "& td": { borderColor: "var(--border-light)" } }}>
-                  {allColumns.map((col) => (
-                    <TableCell
-                      key={col.key}
-                      align={col.align ?? "left"}
-                      sx={{ fontSize: "0.85rem" }}
-                    >
+              /* LOADING — a few skeleton rows */
+              Array.from({ length: 4 }).map((_, i) => (
+                <TableRow key={i}>
+                  {columns.map((col) => (
+                    <TableCell key={col.id} align={col.align} sx={bodyCellSx}>
                       <Skeleton
                         variant="text"
-                        sx={{
-                          ...skeletonBar,
-                          fontSize: "0.85rem",
-                          mx: col.align === "center" ? "auto" : undefined,
-                          ml: col.align === "right" ? "auto" : undefined,
-                        }}
+                        width={col.align === "center" ? "50%" : "70%"}
                       />
                     </TableCell>
                   ))}
                 </TableRow>
               ))
-            ) : paginatedRows.length === 0 ? (
+            ) : count === 0 ? (
+              /* EMPTY — one full-width row */
               <TableRow>
                 <TableCell
-                  colSpan={allColumns.length}
+                  colSpan={columns.length}
                   align="center"
-                  sx={{ py: 4, color: "var(--text-muted)", fontSize: "0.85rem" }}
+                  sx={{ ...bodyCellSx, py: 4, color: "var(--text-muted)" }}
                 >
                   {emptyMessage}
                 </TableCell>
               </TableRow>
             ) : (
-              paginatedRows.map((row, rowIndex) => (
-                <TableRow
-                  key={getRowId(row, rowIndex)}
-                  hover
-                  sx={{
-                    "&:hover": { backgroundColor: "var(--overlay-dark)" },
-                    "& td": { borderColor: "var(--border-light)" },
-                  }}
-                >
-                  {allColumns.map((col) => (
+              paginatedRows.map((row, index) => (
+                <TableRow key={getRowId(row, index)} hover>
+                  {columns.map((col) => (
                     <TableCell
-                      key={col.key}
-                      align={col.align ?? "left"}
-                      sx={{
-                        fontSize: "0.85rem",
-                        color: "var(--text-primary)",
-                        ...(col.isAction && {
-                          /* Keep the cell a real table-cell so it stretches
-                             to the row's full height (a flex <td> collapses
-                             to its content and the buttons drift to the top
-                             of taller, multi-line rows) — vertical-align
-                             then centres them, text-align centres them
-                             horizontally. */
-                          verticalAlign: "middle",
-                          textAlign: "center",
-                        }),
-                      }}
+                      key={col.id}
+                      align={col.align}
+                      sx={{ ...bodyCellSx, ...colWidth(col) }}
                     >
-                      {col.render ? col.render(row, rowIndex) : row[col.key]}
+                      {renderCell(col, row)}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -329,16 +197,55 @@ export default function Table({
         </MuiTable>
       </TableContainer>
 
-      {rows.length > 0 && (
-        <Pagination
-          count={sortedRows.length}
-          page={safePage}
-          rowsPerPage={rowsPerPage}
-          onPageChange={handlePageChange}
-          onRowsPerPageChange={handleRowsPerPageChange}
-          rowsPerPageOptions={rowsPerPageOptions}
-        />
-      )}
-    </Paper>
+      {/* FOOTER — standard MUI pagination toolbar: rows-per-page select,
+          "1–10 of 23" range and prev/next arrows. Responsive: the
+          "Rows per page" label hides on mobile so it fits on one line. */}
+      <TablePagination
+        component="div"
+        count={count}
+        page={safePage}
+        onPageChange={(_, newPage) => setPage(newPage)}
+        rowsPerPage={pageSize}
+        onRowsPerPageChange={(event) => {
+          setPageSize(Number(event.target.value));
+          setPage(0);
+        }}
+        rowsPerPageOptions={pageSizeOptions}
+        labelRowsPerPage="Rows per page:"
+        labelDisplayedRows={({ from, to, count: total }) =>
+          total === 0 ? "No records" : `${from}–${to} of ${total}`
+        }
+        disabled={loading}
+        sx={{
+          borderTop: "1px solid var(--border-light)",
+          flexShrink: 0,
+          color: "var(--text-muted)",
+          "& .MuiTablePagination-toolbar": {
+            px: { xs: 1.5, sm: 2 },
+            py: 1,
+            minHeight: { xs: 52, sm: 56 },
+            gap: 0.5,
+          },
+          "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows, & .MuiTablePagination-select":
+            {
+              fontSize: "0.78rem",
+              color: "var(--text-muted)",
+              margin: 0,
+            },
+          "& .MuiTablePagination-selectLabel": {
+            display: { xs: "none", sm: "block" },
+          },
+          "& .MuiTablePagination-input": {
+            mr: { xs: 0, sm: 1.5 },
+            "& .MuiOutlinedInput-notchedOutline": { borderColor: "var(--border-medium)" },
+            "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "var(--accent)" },
+          },
+          "& .MuiTablePagination-actions": {
+            ml: { xs: 0.5, sm: 1.5 },
+            "& .MuiIconButton-root": { color: "var(--text-primary)" },
+          },
+        }}
+      />
+    </Box>
   );
 }

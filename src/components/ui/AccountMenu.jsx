@@ -10,7 +10,6 @@ import {
   MenuItem,
   Typography,
 } from "@mui/material";
-import SettingsIcon from "@mui/icons-material/Settings";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { useAuth } from "../../hooks/useAuth.js";
 
@@ -23,8 +22,7 @@ const menuItemSx = {
 /**
  * Avatar button shown in the header, to the right of the theme toggle.
  * The "image" is the user's initials (first letter of first name + first
- * letter of last name, e.g. "JD"); clicking opens a menu with Settings
- * and Logout.
+ * letter of last name, e.g. "JD"); clicking opens a menu with Logout.
  */
 export default function AccountMenu() {
   const { user, logout } = useAuth();
@@ -38,11 +36,6 @@ export default function AccountMenu() {
   const initials = (first + last).toUpperCase() || "?";
   const fullName = `${user.strFName || ""} ${user.strLName || ""}`.trim();
   const open = Boolean(anchorEl);
-
-  const goSettings = () => {
-    setAnchorEl(null);
-    navigate("/settings");
-  };
 
   const goLogout = async () => {
     setAnchorEl(null);
@@ -115,15 +108,6 @@ export default function AccountMenu() {
             {user.strEmail ? ` · ${user.strEmail}` : ""}
           </Typography>
         </div>
-
-        <MenuItem onClick={goSettings} sx={menuItemSx}>
-          <ListItemIcon>
-            <SettingsIcon fontSize="small" sx={{ color: "var(--text-muted)" }} />
-          </ListItemIcon>
-          <ListItemText>Settings</ListItemText>
-        </MenuItem>
-
-        <Divider sx={{ borderColor: "var(--border-light)" }} />
 
         <MenuItem onClick={goLogout} sx={menuItemSx}>
           <ListItemIcon>

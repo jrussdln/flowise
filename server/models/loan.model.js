@@ -1,53 +1,54 @@
 /* ------------------------------------------------------------------
-   Data access for `tblloans` (the Loans tab).
-
-   Pure Supabase queries — no HTTP/req handling here (that lives in
-   server/controllers/loan.controller.js). Every function throws the
-   raw Supabase error on failure; the controller turns it into a
-   JSON response.
-
-   EVERY query is scoped by `nUserId`: a user only ever sees or touches
-   their own loans (the owner id comes from the session cookie, never
-   from a request body). Foreign or missing rows both read as null → 404.
-
-   NOTE: this is the ONLY place that knows the table name/columns.
+   Data access for `tblloans` (borrowed money being paid back).
+   Rows are scoped to the owner's auth.users uuid — see
+   server/utils/owner.js.
    ------------------------------------------------------------------ */
 
 import { getSupabase } from "../config/supabase.js";
 
 const TABLE = "tblloans";
 
-/** All loans owned by `nUserId`, newest first. */
-export async function findAllForUser(nUserId) {
+export const WRITABLE_FIELDS = [
+  "strName",
+  "strLender",
+  "dPrincipal",
+  "dInterestRate",
+  "nTermMonths",
+  "dMonthlyPayment",
+  "dStartDate",
+  "dEndDate",
+  "nPaymentDay",
+  "cStatus",
+  "strNotes",
+];
+
+export async function findAll(ownerId) {
   const { data, error } = await getSupabase()
     .from(TABLE)
     .select("*")
-    .eq("nUserId", nUserId)
-    // Newest first; nLoanId is the reliable creation order
-    // (dttCreated is nullable and may repeat).
-    .order("nLoanId", { ascending: false });
+    .eq("nUserId", ownerId)
+    .order("dStartDate", { ascending: false });
 
   if (error) throw error;
   return data ?? [];
 }
 
-/** Returns the row when it exists AND belongs to `nUserId`, else null. */
-export async function findById(id, nUserId) {
+export async function findById(id, ownerId) {
   const { data, error } = await getSupabase()
     .from(TABLE)
     .select("*")
     .eq("nLoanId", id)
-    .eq("nUserId", nUserId)
+    .eq("nUserId", ownerId)
     .maybeSingle();
 
   if (error) throw error;
   return data;
 }
 
-export async function create(values) {
+export async function create(values, ownerId) {
   const { data, error } = await getSupabase()
     .from(TABLE)
-    .insert([{ ...values, dttCreated: new Date().toISOString() }])
+    .insert([{ ...values, nUserId: ownerId }])
     .select()
     .single();
 
@@ -55,26 +56,24 @@ export async function create(values) {
   return data;
 }
 
-/** Returns the updated row, or null when no row matched `id` for this user. */
-export async function update(id, values, nUserId) {
+export async function update(id, ownerId, values) {
   const { data, error } = await getSupabase()
     .from(TABLE)
     .update(values)
     .eq("nLoanId", id)
-    .eq("nUserId", nUserId)
+    .eq("nUserId", ownerId)
     .select();
 
   if (error) throw error;
   return data?.[0] ?? null;
 }
 
-/** Returns true when one of the user's rows was actually deleted. */
-export async function remove(id, nUserId) {
+export async function remove(id, ownerId) {
   const { data, error } = await getSupabase()
     .from(TABLE)
     .delete()
     .eq("nLoanId", id)
-    .eq("nUserId", nUserId)
+    .eq("nUserId", ownerId)
     .select("nLoanId");
 
   if (error) throw error;

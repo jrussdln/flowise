@@ -668,7 +668,7 @@ export default function FieldsComponent({
                 ) : filteredOptions.length === 0 ? (
                   <MenuItem disabled>
                     <Typography variant="caption" sx={{ color: "var(--text-muted)" }}>
-                      No data available
+                      {field.emptyText || "No data available"}
                     </Typography>
                   </MenuItem>
                 ) : (

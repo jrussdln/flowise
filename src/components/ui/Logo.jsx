@@ -1,20 +1,26 @@
 import { useState } from "react";
 import { SITE } from "../../constants/site";
+import { useTheme } from "../../hooks/useTheme.js";
 import { LOGOS } from "../../constants/logos";
 
 /**
- * Main application logo. Pass `mobileSrc` to show a different image below
- * the sm breakpoint.
- * Falls back to initials if the image fails to load.
+ * Main application logo. `variant` picks the asset set — "logo" (full
+ * wordmark, default) or "icon" (square icon) — and the theme picks the
+ * colour (dark logo on the dark theme, light logo on the light theme);
+ * pass `src` to override both. Falls back to initials if the image fails
+ * to load.
  */
 export default function Logo({
-  src = LOGOS.rectangle,
-  mobileSrc,
+  variant = "logo",
+  src,
   alt = SITE.name,
   imgClassName = "",
   className = "",
 }) {
   const [ok, setOk] = useState(true);
+  const { theme } = useTheme();
+  const set = LOGOS[variant] || LOGOS.logo;
+  const resolved = src || set[theme] || set.light;
 
   if (!ok) {
     return (
@@ -28,7 +34,7 @@ export default function Logo({
 
   const img = (
     <img
-      src={src}
+      src={resolved}
       alt={alt}
       className={`w-auto ${imgClassName}`}
       onError={() => setOk(false)}
@@ -37,16 +43,7 @@ export default function Logo({
 
   return (
     <span className={`flex items-center ${className}`}>
-      <span className="logo-shine">
-        {mobileSrc ? (
-          <picture>
-            <source media="(max-width: 639px)" srcSet={mobileSrc} />
-            {img}
-          </picture>
-        ) : (
-          img
-        )}
-      </span>
+      <span className="logo-shine">{img}</span>
     </span>
   );
 }

@@ -1,16 +1,21 @@
+import Logo from "./Logo";
+
 /**
- * Full-screen spinner used while the auth session is being restored
- * (RequireAuth on protected routes and the /login page both wait on it).
+ * Full-screen loader used while the auth session is being restored
+ * (RequireAuth on protected routes and the /login page both wait on
+ * it). Just the bare app icon, pulsing and shining like a skeleton
+ * placeholder — no card, no text.
  */
-export default function AppLoader({ label = "Loading…" }) {
+export default function AppLoader() {
   return (
     <div
       role="status"
       aria-live="polite"
-      className="min-h-screen flex flex-col items-center justify-center gap-4 bg-[var(--bg-primary)]"
+      className="min-h-screen flex items-center justify-center bg-[var(--bg-primary)]"
     >
-      <span className="h-9 w-9 rounded-full border-2 border-[var(--border-medium)] border-t-[var(--accent)] animate-spin" />
-      <p className="text-sm text-[var(--text-muted)]">{label}</p>
+      <div className="logo-skeleton">
+        <Logo variant="icon" imgClassName="h-16 w-16" />
+      </div>
     </div>
   );
 }

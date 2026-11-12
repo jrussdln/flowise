@@ -81,7 +81,7 @@ export default function Login() {
         }}
       >
         <header className="text-center">
-          <Logo imgClassName="h-9" className="justify-center" />
+          <Logo variant="icon" imgClassName="h-9" className="justify-center" />
           <h1 className="mt-5 text-2xl font-bold text-[var(--text-primary)]">
             Welcome back
           </h1>
