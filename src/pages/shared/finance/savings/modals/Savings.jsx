@@ -7,7 +7,6 @@ import SavingsAEModal from "./SavingsAEModal";
 import { savingsService } from "../../../../../services/savingsService";
 import { useContentChrome } from "../../../../../hooks/usePageChrome";
 import {
-  ADD_BUTTON_SX,
   PillBadge,
   RowActions,
   buildCounts,
@@ -249,12 +248,31 @@ export default function Savings() {
           counts={statusCounts}
           label="Filter by goal status"
         />
+        {/* Same outlined chip style as the Ledger/Accounts Add buttons. */}
         <Button
-          variant="contained"
           startIcon={<AddIcon />}
           onClick={handleOpenAdd}
           aria-label="Add savings goal"
-          sx={ADD_BUTTON_SX}
+          sx={{
+            height: { xs: 30, sm: 34 },
+            minHeight: { xs: 30, sm: 34 },
+            px: { xs: 0.75, sm: 1.5 },
+            borderRadius: 2.5,
+            border: "1px solid",
+            borderColor: "var(--border-medium)",
+            backgroundColor: "var(--bg-secondary)",
+            color: "var(--accent)",
+            fontWeight: 600,
+            fontSize: { xs: "0.7rem", sm: "0.78rem" },
+            textTransform: "none",
+            whiteSpace: "nowrap",
+            "& .MuiButton-startIcon": { mr: { xs: 0, sm: 0.5 } },
+            "& svg": { fontSize: { xs: 15, sm: 17 } },
+            "&:hover": {
+              borderColor: "var(--accent)",
+              backgroundColor: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            },
+          }}
         >
           <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
             Goal

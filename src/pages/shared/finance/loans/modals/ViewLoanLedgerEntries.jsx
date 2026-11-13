@@ -43,6 +43,13 @@ const STATUS_META = {
 /* Loan-icon circle color (matches the Loan type on the Ledger page). */
 const LOAN_COLOR = "#e65100";
 
+/* Loan lifecycle status (same colors as the Loans page table). */
+const LOAN_STATUS_META = {
+  ACTIVE: { label: "Active", color: "#2e7d32" },
+  PAID: { label: "Completed", color: "#1565c0" },
+  DEFAULTED: { label: "Defaulted", color: "#d32f2f" },
+};
+
 const isThisMonth = (value) => {
   if (!value) return false;
   const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
@@ -91,6 +98,9 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
   const [entries, setEntries] = useState([]);
   const [paySources, setPaySources] = useState([]);
   const [loading, setLoading] = useState(false);
+  /* All accounts (for resolving the linked Loan account's
+     Bank / Provider as the lender fallback). */
+  const [accounts, setAccounts] = useState([]);
   /* The entry whose inline "PAY USING" chooser is open (null = closed). */
   const [payEntryId, setPayEntryId] = useState(null);
   const [entriesTab, setEntriesTab] = useState("billed");
@@ -107,12 +117,13 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
       ]);
       const linked = (rows || []).filter((e) => e.nLoanId === loan.nLoanId);
       setEntries(linked);
+      setAccounts(accountRows || []);
       /* Payment sources: any non-credit-card account, with its live
          balance (computed from the same entries) for the
          insufficient-funds check. */
       setPaySources(
         (accountRows || [])
-          .filter((a) => a.cAccountType !== "CREDIT")
+          .filter((a) => a.cAccountType !== "CREDIT" && a.cAccountType !== "LOAN")
           .map((a) => ({ ...a, dBalance: accountBalance(a, rows || []) }))
       );
     } catch (err) {
@@ -222,88 +233,183 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
   const schedule = loan ? loanSchedule(loan) : null;
   const monthlyAmount = schedule?.[0]?.amount ?? null;
 
+  /* Lender display name: the loan's own lender, else the Bank /
+     Provider of its linked Loan account (the loan adopts it on
+     save) — used for the entry captions and the summary card. */
+  const lenderName =
+    loan?.strLender ||
+    accounts.find((a) => a.nAccountId === loan?.nAccountId)?.strInstitution ||
+    null;
+
+  /* Loan facts for the summary card: principal/interest math, paid
+     progress (from the LN installments' bIsPaid flags), and the
+     start–end range. */
+  const term = Number(loan?.nTermMonths) || 0;
+  const principal = Number(loan?.dPrincipal || 0);
+  const rate =
+    loan?.dInterestRate !== "" && loan?.dInterestRate != null ? Number(loan.dInterestRate) : null;
+  const installments = rows.filter((r) => r.cType === "LN");
+  const paidCount = installments.filter((r) => r.bIsPaid === true).length;
+  const totalPay = schedule ? schedule.reduce((sum, e) => sum + Number(e.amount || 0), 0) : null;
+  const interest = totalPay != null ? Math.max(totalPay - principal, 0) : null;
+  const remaining =
+    schedule && monthlyAmount != null ? Math.max((term - paidCount) * monthlyAmount, 0) : null;
+  const range =
+    loan?.dStartDate && schedule
+      ? `${prettyDate(loan.dStartDate)} – ${schedule[schedule.length - 1]?.due ?? ""}`
+      : loan?.dStartDate
+        ? prettyDate(loan.dStartDate)
+        : null;
+
   return (
     <ModalComponent
       open={open}
       onClose={onClose}
       title={`Ledger Entries — ${loan?.strName || "Loan"}`}
-      subtitle={loan ? `${loan.strLender || "Loan"} · ${rows.length} entr${rows.length === 1 ? "y" : "ies"}` : undefined}
+      subtitle={loan ? `${lenderName || "Loan"} · ${rows.length} entr${rows.length === 1 ? "y" : "ies"}` : undefined}
       type="view"
       maxWidth="sm"
     >
       {loan && (
-        /* Horizontal loan summary card (same layout as the credit
-           card's balance card). */
-        <Stack
-          direction="row"
-          spacing={1.25}
+        /* Loan summary card: icon + name/status, lender · interest ·
+           term and the start–end range under it, the monthly payment
+           on the right, and a mini-stat row (Principal / Interest /
+           Total / Paid / Left) below — same layout as the credit
+           card's balance card. */
+        <Box
           sx={{
             p: 1.25,
+            mb: 0.5,
             border: "1px solid var(--border-light)",
             borderRadius: 2,
             backgroundColor: "var(--bg-secondary)",
           }}
         >
+          <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+            <Box
+              aria-hidden
+              sx={{
+                width: 34,
+                height: 34,
+                flexShrink: 0,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: `color-mix(in srgb, ${LOAN_COLOR} 14%, transparent)`,
+                color: LOAN_COLOR,
+                "& svg": { fontSize: 18 },
+              }}
+            >
+              <LoanIcon />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: "var(--text-primary)",
+                  fontWeight: 600,
+                  lineHeight: 1.25,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {loan.strName || "—"}
+                {LOAN_STATUS_META[loan.cStatus] && (
+                  <Box
+                    component="span"
+                    sx={{ ml: 0.75, fontSize: "0.65rem", fontWeight: 600, color: LOAN_STATUS_META[loan.cStatus].color }}
+                  >
+                    {LOAN_STATUS_META[loan.cStatus].label}
+                  </Box>
+                )}
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{
+                  display: "block",
+                  color: "var(--text-muted)",
+                  fontStyle: "italic",
+                  lineHeight: 1.25,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {[
+                  lenderName,
+                  rate != null && rate > 0 ? `${rate}% int` : null,
+                  term ? `${term} months` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "—"}
+              </Typography>
+              {range && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: "block",
+                    color: "var(--text-muted)",
+                    fontStyle: "italic",
+                    lineHeight: 1.25,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {range}
+                </Typography>
+              )}
+            </Box>
+            <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+              <Typography variant="caption" sx={{ display: "block", color: "var(--text-muted)", lineHeight: 1.2 }}>
+                Per month
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2, whiteSpace: "nowrap" }}>
+                {peso(monthlyAmount)}
+              </Typography>
+            </Box>
+          </Stack>
+
+          {/* Mini-stat row: the loan's money facts at a glance —
+              cells expand evenly across the full card width, each
+              right-aligned. */}
           <Box
-            aria-hidden
             sx={{
-              width: 34,
-              height: 34,
-              flexShrink: 0,
-              borderRadius: "50%",
               display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: `color-mix(in srgb, ${LOAN_COLOR} 14%, transparent)`,
-              color: LOAN_COLOR,
-              "& svg": { fontSize: 18 },
+              alignItems: "flex-start",
+              mt: 1.25,
+              pt: 1.25,
+              borderTop: "1px dashed var(--border-light)",
             }}
           >
-            <LoanIcon />
+            {[
+              { label: "Principal", value: peso(principal) },
+              interest > 0 && { label: "Interest", value: peso(interest) },
+              totalPay != null && { label: "Total", value: peso(totalPay) },
+              term > 0 && { label: "Paid", value: `${paidCount} of ${term}` },
+              remaining != null && { label: "Left", value: peso(remaining) },
+            ]
+              .filter(Boolean)
+              .map((stat) => (
+                <Box key={stat.label} sx={{ flex: 1, minWidth: 0, textAlign: "right" }}>
+                  <Typography
+                    variant="caption"
+                    sx={{ display: "block", color: "var(--text-muted)", lineHeight: 1.2 }}
+                  >
+                    {stat.label}
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 600, lineHeight: 1.2, whiteSpace: "nowrap", color: "var(--text-primary)" }}
+                  >
+                    {stat.value}
+                  </Typography>
+                </Box>
+              ))}
           </Box>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography
-              variant="body2"
-              sx={{
-                color: "var(--text-primary)",
-                fontWeight: 600,
-                lineHeight: 1.25,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {loan.strName || "—"}
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{
-                display: "block",
-                color: "var(--text-muted)",
-                fontStyle: "italic",
-                lineHeight: 1.25,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {[
-                loan.strLender,
-                loan.nTermMonths ? `${loan.nTermMonths} months` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ") || "—"}
-            </Typography>
-          </Box>
-          <Box sx={{ textAlign: "right", flexShrink: 0 }}>
-            <Typography variant="caption" sx={{ display: "block", color: "var(--text-muted)", lineHeight: 1.2 }}>
-              Per month
-            </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2, whiteSpace: "nowrap" }}>
-              {peso(monthlyAmount)}
-            </Typography>
-          </Box>
-        </Stack>
+        </Box>
       )}
 
       {/* Statement tabs — same set as the credit-card viewer. */}
@@ -463,7 +569,8 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
                       variant="body2"
                       sx={{
                         color: "var(--text-primary)",
-                        fontWeight: 600,
+                        fontWeight: 500,
+                        fontSize: "0.75rem",
                         lineHeight: 1.25,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -472,24 +579,32 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
                     >
                       {row.strTitle || "—"}
                     </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        display: "block",
-                        color: "var(--text-muted)",
-                        fontStyle: "italic",
-                        lineHeight: 1.25,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Due {prettyDate(row.dTransactionDate)}
-                    </Typography>
+                    {/* Lender under the title (italic caption) — the
+                        entry's merchant, falling back to the linked
+                        account's Bank / Provider when the merchant is
+                        empty (account-linked loans). */}
+                    {(row.strMerchant || lenderName) && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          display: "block",
+                          color: "var(--text-muted)",
+                          fontStyle: "italic",
+                          lineHeight: 1.25,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {row.strMerchant || lenderName}
+                      </Typography>
+                    )}
                   </Box>
 
-                  {/* Amount + fee (same size), then the larger total
-                      (amount + fee) — same block as the credit viewer. */}
+                  {/* Amount, then fee + larger total only when there IS
+                      a fee (with no fee the total would just duplicate
+                      the amount) — and the installment's due date below,
+                      same block as the credit viewer. */}
                   <Box sx={{ textAlign: "right", flexShrink: 0 }}>
                     <Typography
                       variant="body2"
@@ -501,7 +616,7 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
                         fontSize: "0.65rem",
                       }}
                     >
-                      −{peso(row.dAmount)}
+                      {peso(row.dAmount)}
                     </Typography>
                     {Number(row.dFee) > 0 && (
                       <Typography
@@ -516,17 +631,38 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
                         + {peso(row.dFee)} fee
                       </Typography>
                     )}
+                    {Number(row.dFee) > 0 && (
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: LOAN_COLOR,
+                          fontWeight: 700,
+                          whiteSpace: "nowrap",
+                          lineHeight: 1.2,
+                          fontSize: "0.75rem",
+                        }}
+                      >
+                        {peso(Number(row.dAmount || 0) + Number(row.dFee || 0))}
+                      </Typography>
+                    )}
+                    {/* The installment's due date under the money —
+                        muted when paid, red when overdue, amber when
+                        still upcoming. */}
                     <Typography
                       variant="body2"
                       sx={{
-                        color: LOAN_COLOR,
-                        fontWeight: 700,
+                        color: row.bIsPaid
+                          ? "var(--text-muted)"
+                          : isOverdue(row.dTransactionDate)
+                            ? "#d32f2f"
+                            : "#d97706",
+                        fontWeight: 600,
                         whiteSpace: "nowrap",
                         lineHeight: 1.2,
-                        fontSize: "0.75rem",
+                        fontSize: "0.65rem",
                       }}
                     >
-                      −{peso(Number(row.dAmount || 0) + Number(row.dFee || 0))}
+                      Due {prettyDate(row.dTransactionDate)}
                     </Typography>
                   </Box>
 
@@ -631,7 +767,15 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
                           alignItems: "center",
                         }}
                       >
-                        {paySources.map((source) => (
+                        {paySources.map((source) => {
+                          /* A source that can't cover this payment's
+                             total (amount + fee) renders red. */
+                          const payTotal = Number(row.dAmount || 0) + Number(row.dFee || 0);
+                          const insufficient =
+                            source.dBalance != null &&
+                            !Number.isNaN(Number(source.dBalance)) &&
+                            Number(source.dBalance) < payTotal;
+                          return (
                           <Button
                             key={source.nAccountId}
                             size="small"
@@ -652,6 +796,16 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
                                 color: "#2e7d32",
                                 backgroundColor: "color-mix(in srgb, #2e7d32 10%, transparent)",
                               },
+                              ...(insufficient && {
+                                borderColor: "#d32f2f",
+                                color: "#d32f2f",
+                                backgroundColor: "color-mix(in srgb, #d32f2f 8%, transparent)",
+                                "&:hover": {
+                                  borderColor: "#d32f2f",
+                                  color: "#d32f2f",
+                                  backgroundColor: "color-mix(in srgb, #d32f2f 14%, transparent)",
+                                },
+                              }),
                             }}
                           >
                             {source.strName}
@@ -664,7 +818,8 @@ export default function ViewLoanLedgerEntries({ open, onClose, loan, onDataChang
                                 })})`
                               : ""}
                           </Button>
-                        ))}
+                          );
+                        })}
                       </Box>
                     )}
                   </Box>

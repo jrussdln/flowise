@@ -34,17 +34,25 @@ const getFormFields = (
       ? null
       : `₱${Number(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const accountOptions = accounts.map((a) => {
-    const balance = pesoBalance(a.dBalance);
-    return {
-      label: `${a.strName}${a.strInstitution ? ` - ${a.strInstitution}` : ""}${
-        a.strLast4 ? ` ••••${a.strLast4}` : ""
-      }${balance ? ` (${balance})` : ""}`,
-      value: a.nAccountId,
-    };
-  });
-  /* The source account can't also be the destination. */
-  const toAccountOptions = accountOptions.filter((o) => o.value !== Number(fromAccountId));
+  const accountOptions = accounts
+    .filter((a) => a.cAccountType !== "LOAN")
+    .map((a) => {
+      const balance = pesoBalance(a.dBalance);
+      return {
+        label: `${a.strName}${a.strInstitution ? ` - ${a.strInstitution}` : ""}${
+          a.strLast4 ? ` ••••${a.strLast4}` : ""
+        }${balance ? ` (${balance})` : ""}`,
+        value: a.nAccountId,
+      };
+    });
+  /* The source account can't also be the destination. Transfers move
+     money between cash/bank accounts — credit cards are charged via
+     Credit (PRC) and loans are managed from the Loans page, never
+     To/From. */
+  const debitAccountOptions = accountOptions.filter(
+    (o) => accounts.find((a) => a.nAccountId === o.value)?.cAccountType !== "CREDIT"
+  );
+  const toAccountOptions = debitAccountOptions.filter((o) => o.value !== Number(fromAccountId));
   /* Purchases must charge a credit card account. */
   const creditCardOptions = accountOptions.filter(
     (o) => accounts.find((a) => a.nAccountId === o.value)?.cAccountType === "CREDIT"
@@ -91,8 +99,14 @@ const getFormFields = (
             /* Transfers: half row, paired with To Account.
                Others: Add ⅓ row (Account | Category | Merchant), Edit half row with Type. */
             gridCols: cType === "TRF" || isEdit ? 6 : 4,
-            /* Purchases charge a credit card — only CREDIT accounts qualify. */
-            options: cType === "PRC" ? creditCardOptions : accountOptions,
+            /* Purchases charge a credit card; transfers only move
+               money between cash/bank accounts. */
+            options:
+              cType === "PRC"
+                ? creditCardOptions
+                : cType === "TRF"
+                  ? debitAccountOptions
+                  : accountOptions,
             /* Real loading flag only — an empty list shows the empty state,
                never an endless skeleton. */
             loading: lookupsLoading,
@@ -168,6 +182,28 @@ export default function LedgerAEModal({
   const isEdit = Boolean(editingEntry);
   const typeLabel = LEDGER_TYPE_META[formData.cType] || "Entry";
 
+  /* Insufficient-funds highlight: for every money-moving type except
+     Inflow (the account field is a source there — Payment's Account,
+     Transfer's From Account, Outflow's Account, or a Credit charge's
+     available credit), the field turns red (with a helper message) the
+     moment amount + fee exceeds the account's live balance — before
+     the user ever hits Save. */
+  const sourceAccount = accounts.find((a) => a.nAccountId === Number(formData.nAccountId));
+  const sourceTotal = Number(formData.dAmount || 0) + Number(formData.dFee || 0);
+  const sourceShort =
+    formData.cType !== "IN" &&
+    formData.cType !== "LN" &&
+    sourceAccount?.dBalance != null &&
+    sourceTotal > 0 &&
+    sourceTotal > Number(sourceAccount.dBalance);
+  const formErrors = sourceShort
+    ? {
+        nAccountId: `Insufficient funds — ${sourceAccount.strName} has ₱${Number(
+          sourceAccount.dBalance
+        ).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      }
+    : {};
+
   /* If the From account becomes the currently selected To account
      (e.g. user changes From after picking To), clear the stale pick. */
   useEffect(() => {
@@ -216,6 +252,7 @@ export default function LedgerAEModal({
         )}
         values={formData}
         onChange={onChange}
+        errors={formErrors}
       />
     </ModalComponent>
   );

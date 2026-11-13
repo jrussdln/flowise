@@ -21,6 +21,7 @@ export const WRITABLE_FIELDS = [
   "dCreditLimit",
   "nStatementDay",
   "nDueDay",
+  "bIsDebitedAfterFullPayment",
   "bIsActive",
 ];
 

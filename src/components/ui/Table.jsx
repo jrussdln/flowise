@@ -23,6 +23,12 @@
    - loading: shows skeleton rows
    - emptyMessage: shown when no (filtered) rows match
    - pageSizeOptions / initialPageSize: pagination footer options
+   - maxHeight: the table body area scrolls past this height (sticky
+         header stays put); pass null to let the table grow freely
+   - numbered: when true (the default) a leading "#" column shows the
+         row number — it continues across pages (26, 27, … on page 2)
+   - rowSx: optional (row) => sx object — extra styling per body row
+         (e.g. a highlight tint); return undefined for no change
    ------------------------------------------------------------------ */
 
 import { useEffect, useMemo, useState } from "react";
@@ -71,8 +77,13 @@ export default function Table({
   searchFields,
   loading = false,
   emptyMessage = "No records found",
-  pageSizeOptions = [5, 10, 25],
-  initialPageSize = 10,
+  /* Pagination choices — "All" (value -1) sits at the top of the
+     list; the default page size is 25. */
+  pageSizeOptions = [{ value: -1, label: "All" }, 25, 50, 100, 500],
+  initialPageSize = 25,
+  maxHeight = 360,
+  numbered = true,
+  rowSx,
 }) {
   /* The search field lives in the page header (HeaderSearch); this
      table only consumes the shared term and publishes its placeholder
@@ -106,7 +117,9 @@ export default function Table({
   }, [rows, searchTerm, fieldsToSearch]);
 
   const count = filteredRows.length;
-  const pageCount = Math.max(1, Math.ceil(count / pageSize));
+  /* "All" mode: one page holding every filtered row. */
+  const pageSizeOrAll = pageSize === -1 ? count || 1 : pageSize;
+  const pageCount = Math.max(1, Math.ceil(count / pageSizeOrAll));
 
   /* Keep the current page valid when the row set shrinks (search or
      filter narrowing the list) — derived during render instead of a
@@ -114,7 +127,10 @@ export default function Table({
   const safePage = Math.min(page, pageCount - 1);
 
   const paginatedRows = useMemo(
-    () => filteredRows.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    () =>
+      pageSize === -1
+        ? filteredRows
+        : filteredRows.slice(safePage * pageSize, safePage * pageSize + pageSize),
     [filteredRows, safePage, pageSize]
   );
 
@@ -129,6 +145,13 @@ export default function Table({
 
   const colWidth = (col) => (col.minWidth ? { width: col.minWidth } : undefined);
 
+  /* Row number for the leading "#" column — continues across pages. */
+  const rowNumber = (index) =>
+    (pageSize === -1 ? 0 : safePage * pageSize) + index + 1;
+
+  /* How many cells each row holds when the "#" column is on. */
+  const cellCount = numbered ? columns.length + 1 : columns.length;
+
   return (
     <Box
       sx={{
@@ -139,11 +162,18 @@ export default function Table({
         overflow: "hidden",
       }}
     >
-      <TableContainer>
+      {/* maxHeight caps the scrolling area (stickyHeader keeps the
+          labels pinned while the body scrolls under it). */}
+      <TableContainer sx={maxHeight != null ? { maxHeight } : undefined}>
         <MuiTable size="small" stickyHeader>
           {/* COLUMN LABELS — all centered */}
           <TableHead>
             <TableRow>
+              {numbered && (
+                <TableCell align="center" sx={{ ...headCellSx, width: 48 }}>
+                  #
+                </TableCell>
+              )}
               {columns.map((col) => (
                 <TableCell key={col.id} align="center" sx={headCellSx}>
                   {col.label}
@@ -157,6 +187,11 @@ export default function Table({
               /* LOADING — a few skeleton rows */
               Array.from({ length: 4 }).map((_, i) => (
                 <TableRow key={i}>
+                  {numbered && (
+                    <TableCell align="center" sx={bodyCellSx}>
+                      <Skeleton variant="text" width="50%" />
+                    </TableCell>
+                  )}
                   {columns.map((col) => (
                     <TableCell key={col.id} align={col.align} sx={bodyCellSx}>
                       <Skeleton
@@ -171,7 +206,7 @@ export default function Table({
               /* EMPTY — one full-width row */
               <TableRow>
                 <TableCell
-                  colSpan={columns.length}
+                  colSpan={cellCount}
                   align="center"
                   sx={{ ...bodyCellSx, py: 4, color: "var(--text-muted)" }}
                 >
@@ -180,7 +215,15 @@ export default function Table({
               </TableRow>
             ) : (
               paginatedRows.map((row, index) => (
-                <TableRow key={getRowId(row, index)} hover>
+                <TableRow key={getRowId(row, index)} hover sx={rowSx ? rowSx(row) : undefined}>
+                  {numbered && (
+                    <TableCell
+                      align="center"
+                      sx={{ ...bodyCellSx, width: 48, color: "var(--text-muted)" }}
+                    >
+                      {rowNumber(index)}
+                    </TableCell>
+                  )}
                   {columns.map((col) => (
                     <TableCell
                       key={col.id}

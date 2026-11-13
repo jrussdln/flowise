@@ -17,6 +17,7 @@ const getFormFields = (cAccountType) => {
         { label: "Bank", value: "BANK" },
         { label: "Debit Card", value: "DEBIT" },
         { label: "Credit Card", value: "CREDIT" },
+        { label: "Loan", value: "LOAN" },
         { label: "E-Wallet", value: "EWALLET" },
       ],
     },
@@ -32,14 +33,22 @@ const getFormFields = (cAccountType) => {
     { name: "strCurrency", label: "Currency", gridCols: 6, helperText: "3-letter code (PHP)" },
   ];
 
-  const credit =
-    cAccountType === "CREDIT"
-      ? [
-          { name: "dCreditLimit", label: "Credit Limit", type: "peso", gridCols: 4 },
-          { name: "nStatementDay", label: "Statement Day (1–31)", type: "number", gridCols: 4 },
-          { name: "nDueDay", label: "Due Day (1–31)", type: "number", gridCols: 4 },
-        ]
-      : [];
+  /* The extra limit/statement/due-day fields apply to credit cards and
+     Loan accounts alike (same shape as tblaccounts). */
+  const hasCardFields = cAccountType === "CREDIT" || cAccountType === "LOAN";
+
+  const credit = hasCardFields
+    ? [
+        {
+          name: "dCreditLimit",
+          label: cAccountType === "LOAN" ? "Loan Limit" : "Credit Limit",
+          type: "peso",
+          gridCols: 4,
+        },
+        { name: "nStatementDay", label: "Statement Day (1–31)", type: "number", gridCols: 4 },
+        { name: "nDueDay", label: "Due Day (1–31)", type: "number", gridCols: 4 },
+      ]
+    : [];
 
   /* Status is managed from the table's status button, not the form. */
   return [...base, ...credit];
@@ -72,6 +81,17 @@ export default function AccountsAEModal({
     >
       <FieldsComponent
         fields={getFormFields(formData.cAccountType)}
+        switches={
+          formData.cAccountType === "LOAN"
+            ? [
+                {
+                  name: "bIsDebitedAfterFullPayment",
+                  label: "Debit after full payment (add completed-loan payments to the balance)",
+                  mobileLabel: "Debit after full payment",
+                },
+              ]
+            : []
+        }
         values={formData}
         onChange={onChange}
       />

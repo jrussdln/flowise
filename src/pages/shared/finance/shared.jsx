@@ -12,7 +12,7 @@
    ------------------------------------------------------------------ */
 
 import { useCallback, useState } from "react";
-import { Alert, Box, IconButton, Snackbar, Stack, Typography } from "@mui/material";
+import { Alert, Box, IconButton, Snackbar, Stack, Tooltip, Typography } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import { categoryService } from "../../../services/categoryService";
@@ -76,8 +76,18 @@ export function PillBadge({ meta, fallback }) {
 }
 
 /** Edit + delete icon buttons for a row's Actions cell (tinted boxes).
- *  `extra` renders between the two (e.g. Ledger's status button). */
-export function RowActions({ onEdit, onDelete, label = "record", extra = null, leading = null }) {
+ *  `extra` renders between the two (e.g. Ledger's status button).
+ *  `deleteDisabled` keeps the Delete button visible but unclickable,
+ *  with `deleteDisabledReason` explaining why in its tooltip. */
+export function RowActions({
+  onEdit,
+  onDelete,
+  label = "record",
+  extra = null,
+  leading = null,
+  deleteDisabled = false,
+  deleteDisabledReason = "Has paid entries — can't be deleted",
+}) {
   return (
     <Box sx={{ display: "flex", gap: 0.75, justifyContent: "center" }}>
       {leading}
@@ -102,21 +112,38 @@ export function RowActions({ onEdit, onDelete, label = "record", extra = null, l
       )}
       {extra}
       {onDelete && (
-        <IconButton
-          size="small"
-          aria-label={`Delete ${label}`}
-          onClick={onDelete}
-          sx={{
-            borderRadius: 1.5,
-            color: "#f44336",
-            backgroundColor: "color-mix(in srgb, #f44336 12%, transparent)",
-            "&:hover": {
-              backgroundColor: "color-mix(in srgb, #f44336 22%, transparent)",
-            },
-          }}
+        <Tooltip
+          title={deleteDisabled ? deleteDisabledReason : `Delete ${label}`}
+          arrow
         >
-          <DeleteIcon fontSize="small" />
-        </IconButton>
+          <IconButton
+            size="small"
+            aria-label={`${deleteDisabled ? "Delete (disabled)" : "Delete"} ${label}`}
+            disabled={deleteDisabled}
+            onClick={deleteDisabled ? undefined : onDelete}
+            sx={{
+              borderRadius: 1.5,
+              color: "#f44336",
+              backgroundColor: "color-mix(in srgb, #f44336 12%, transparent)",
+              "&:hover": {
+                backgroundColor: "color-mix(in srgb, #f44336 22%, transparent)",
+              },
+              ...(deleteDisabled && {
+                cursor: "not-allowed",
+                /* Keep the tinted container visible in dark mode — only
+                   the icon fades (MUI's default disabled styles wash the
+                   whole button out on dark backgrounds). */
+                "&.Mui-disabled": {
+                  opacity: 1,
+                  color: "color-mix(in srgb, #f44336 55%, transparent)",
+                  backgroundColor: "color-mix(in srgb, #f44336 14%, transparent)",
+                },
+              }),
+            }}
+          >
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       )}
     </Box>
   );
@@ -205,6 +232,58 @@ export function creditBalance(account, ledgerRows) {
   return Number(account.dCreditLimit || 0) - unpaid;
 }
 
+/** Loan-account balance = the credit left on the account's loans,
+    interest excluded entirely. Credit used is the principal borrowed
+    minus the principal share of the installments already paid
+    (paidCount × principal ÷ term). The account's
+    bIsDebitedAfterFullPayment flag picks the formula:
+    - true: limit − total principal borrowed + the payments made on
+      COMPLETED (Paid-status) loans — completed loans pay the limit
+      back down; without a limit, the outstanding principal.
+    Never negative — a balance would only go below zero when the
+    borrowed principal overruns the limit, and that just means the
+    credit is used up, so it floors at 0. Returns 0 when the account
+    has no linked loans. */
+export function loanCreditBalance(account, loans = [], paidCounts = new Map()) {
+  let totalPrincipal = 0;
+  let paidPrincipal = 0;
+  let completedPayments = 0;
+  let any = false;
+  for (const loan of loans) {
+    if (!account || loan.nAccountId !== account.nAccountId) continue;
+    const principal = Number(loan.dPrincipal || 0);
+    const term = Number(loan.nTermMonths) || 0;
+    if (!(principal > 0) || !(term > 0)) continue;
+    any = true;
+    totalPrincipal += principal;
+    const paidCount = Math.min(paidCounts.get(loan.nLoanId) ?? 0, term);
+    /* Principal share per installment — interest never enters the
+       balance. */
+    const share = principal / term;
+    paidPrincipal += paidCount * share;
+    if (loan.cStatus === "PAID") completedPayments += paidCount * share;
+  }
+  if (!any) return 0;
+  const limit = Number(account?.dCreditLimit);
+  const hasLimit = Number.isFinite(limit) && limit > 0;
+  const used = totalPrincipal - paidPrincipal;
+  /* Flag OFF: limit − outstanding principal (available credit; can go
+     negative when the borrowed principal overruns the limit).
+     Flag ON: limit − total principal + payments made on COMPLETED
+     loans — borrowing against the limit with completed loans paying
+     it back (stays positive while borrowing stays under the limit;
+     without a limit it falls back to the outstanding principal). */
+  const balance =
+    account?.bIsDebitedAfterFullPayment === true
+      ? hasLimit
+        ? limit - totalPrincipal + completedPayments
+        : used
+      : hasLimit
+        ? limit - used
+        : used;
+  return Math.round(balance * 100) / 100;
+}
+
 /** Sample loan payment schedule. Payments land on the Payment Day of
     each month AFTER the start, through the end month (started Oct,
     3-month term → Nov, Dec, Jan). Amount per month: the Monthly
@@ -256,7 +335,9 @@ export async function ensureCategory(name) {
   }
 }
 
-/** Shared chrome for the Add buttons (matches the Users page). */
+/** Shared chrome for the Add buttons (matches the Users page).
+    Used by admin Categories; finance pages inline their own
+    outlined-chip style. */
 export const ADD_BUTTON_SX = {
   backgroundColor: "var(--accent)",
   color: "var(--bg-primary)",

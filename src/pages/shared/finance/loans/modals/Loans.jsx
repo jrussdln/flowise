@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Box, Button, IconButton, ListItemButton, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import {
   RequestQuote as LoansIcon,
@@ -14,14 +15,15 @@ import FilterCards from "../../../../../components/ui/FilterCards";
 import LoansAEModal from "./LoansAEModal";
 import ViewLoanLedgerEntries from "./ViewLoanLedgerEntries";
 import { loanService } from "../../../../../services/loanService";
+import { accountService } from "../../../../../services/accountService";
 import { ledgerService } from "../../../../../services/ledgerService";
 import { useContentChrome } from "../../../../../hooks/usePageChrome";
 import {
-  ADD_BUTTON_SX,
   RowActions,
   buildCounts,
   contentHeader,
   ensureCategory,
+  loanCreditBalance,
   loanSchedule,
   useToast,
 } from "../../shared";
@@ -35,7 +37,7 @@ const STATUS_META = {
 };
 
 const STATUS_FILTER_OPTIONS = [
-  { value: "all", label: "All Statuses" },
+  { value: "all", label: "All" },
   { value: "ACTIVE", label: "Active" },
   { value: "PAID", label: "Completed" },
   { value: "DEFAULTED", label: "Defaulted" },
@@ -69,6 +71,18 @@ export default function Loans() {
   const [statusRow, setStatusRow] = useState(null);
   /* The loan whose Ledger entries are being viewed. */
   const [viewLoan, setViewLoan] = useState(null);
+
+  /* Deep-link support (?open=<loanId>): the Ledger's View button
+     routes here for loan payments — once the loans load, open that
+     loan's entries viewer directly. */
+  const [searchParams] = useSearchParams();
+  const openParam = searchParams.get("open");
+  React.useEffect(() => {
+    if (openParam && loans.length > 0) {
+      const target = loans.find((l) => l.nLoanId === Number(openParam));
+      if (target) setViewLoan(target);
+    }
+  }, [openParam, loans]);
   /* Loan ids that have at least one PAID ledger entry — such loans
      can't be deleted (deleting cascades the entries, which would
      erase paid payment history). */
@@ -79,6 +93,12 @@ export default function Loans() {
   /* Loan id -> how many of its schedule entries are paid (for the
      "12/12" term progress in the Status column). */
   const [paidCounts, setPaidCounts] = useState(() => new Map());
+  /* Loan ids with an unpaid installment due this month ("Billed" in
+     the Ledger) — their table rows are highlighted. */
+  const [billedLoanIds, setBilledLoanIds] = useState(() => new Set());
+  /* Loan-type accounts, for the Add/Edit modal's Linked Account
+     select. */
+  const [loanAccounts, setLoanAccounts] = useState([]);
   const { showToast, toastNode } = useToast();
 
   const handleOpenAdd = useCallback(() => {
@@ -92,6 +112,8 @@ export default function Loans() {
       dMonthlyPayment: "",
       dStartDate: new Date().toISOString().slice(0, 10),
       nPaymentDay: "",
+      /* Optional link to a Loan-type account on the Accounts page. */
+      nAccountId: "",
       /* New loans start defaulted — activating them posts the
          payment schedule to the Ledger. */
       cStatus: "DEFAULTED",
@@ -103,9 +125,10 @@ export default function Loans() {
   const fetchLoans = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, ledgerRows] = await Promise.all([
+      const [data, ledgerRows, accountRows] = await Promise.all([
         loanService.list(),
         ledgerService.list().catch(() => []),
+        accountService.list().catch(() => []),
       ]);
       setLoans(data || []);
       /* Track which loans have at least one paid entry — their Delete
@@ -126,6 +149,34 @@ export default function Loans() {
       }
       setPaidTotals(totals);
       setPaidCounts(counts);
+      /* Loans with an unpaid, POSTED installment due this month —
+         the same rule the Ledger's "Billed" bill-state uses. Their
+         rows get a highlight tint in the table. */
+      const now = new Date();
+      const billed = new Set();
+      for (const e of ledgerRows || []) {
+        if (
+          e.cType !== "LN" ||
+          e.bIsPaid === true ||
+          e.cStatus === "VOID" ||
+          e.cStatus === "PENDING"
+        )
+          continue;
+        const d = new Date(`${String(e.dTransactionDate).slice(0, 10)}T00:00:00`);
+        if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
+          billed.add(e.nLoanId);
+        }
+      }
+      setBilledLoanIds(billed);
+      /* Loan-type accounts for the Add/Edit modal's Linked Account
+         select — each carries its live balance (same loanCreditBalance
+         formula as the Accounts page) so the menu shows it and the
+         principal can be capped against it. */
+      setLoanAccounts(
+        (accountRows || [])
+          .filter((a) => a.cAccountType === "LOAN")
+          .map((a) => ({ ...a, dBalance: loanCreditBalance(a, data || [], counts) }))
+      );
     } catch (err) {
       console.error("Error fetching loans:", err);
       showToast(err.message || "Failed to load loans", "error");
@@ -149,6 +200,7 @@ export default function Loans() {
       dMonthlyPayment: loan.dMonthlyPayment ?? "",
       dStartDate: loan.dStartDate || "",
       nPaymentDay: loan.nPaymentDay ?? "",
+      nAccountId: loan.nAccountId ?? "",
       cStatus: loan.cStatus || "ACTIVE",
       strNotes: loan.strNotes || "",
     });
@@ -188,6 +240,34 @@ export default function Loans() {
       return;
     }
 
+    /* A linked Loan account caps the principal — you can't borrow more
+       than the credit left on the account. Editing frees this loan's
+       own outstanding back into the pot first, so lowering an existing
+       loan never trips the guard. */
+    const linkedAccount = loanAccounts.find(
+      (a) => a.nAccountId === Number(formData.nAccountId)
+    );
+    if (linkedAccount && linkedAccount.dBalance != null) {
+      let available = Number(linkedAccount.dBalance);
+      if (editingLoan && Number(editingLoan.nAccountId) === Number(linkedAccount.nAccountId)) {
+        const current = loans.find((l) => l.nLoanId === editingLoan.nLoanId);
+        const prevPrincipal = Number(current?.dPrincipal || 0);
+        const prevTerm = Number(current?.nTermMonths || 0);
+        if (prevPrincipal > 0 && prevTerm > 0) {
+          const paid0 = Math.min(paidCounts.get(current.nLoanId) || 0, prevTerm);
+          available += prevPrincipal - paid0 * (prevPrincipal / prevTerm);
+        }
+      }
+      available = Math.round(available * 100) / 100;
+      if (Number(formData.dPrincipal) > available) {
+        showToast(
+          `Principal exceeds the linked account's available balance (${peso(available)}).`,
+          "warning"
+        );
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -205,6 +285,7 @@ export default function Loans() {
            editing keeps whatever status the row already has. */
         cStatus: editingLoan ? formData.cStatus : "DEFAULTED",
         strNotes: formData.strNotes?.trim() || null,
+        nAccountId: formData.nAccountId ? Number(formData.nAccountId) : null,
       };
 
       if (editingLoan) {
@@ -247,7 +328,20 @@ export default function Loans() {
         showToast("Loan created successfully!");
       }
 
+      /* A linked Loan account adopts the lender name as its Bank /
+         Provider — that's what the Accounts table shows for it. */
+      if (payload.nAccountId && payload.strLender) {
+        const linkedAccount = loanAccounts.find((a) => a.nAccountId === payload.nAccountId);
+        if (linkedAccount && linkedAccount.strInstitution !== payload.strLender) {
+          await accountService
+            .update(payload.nAccountId, { strInstitution: payload.strLender })
+            .catch(() => null);
+        }
+      }
+
       handleCloseModal();
+      /* fetchLoans also re-fetches accounts, so the Loan account's
+         Bank/Provider refreshes everywhere it's listed. */
       await fetchLoans();
     } catch (err) {
       console.error("Save error:", err);
@@ -409,6 +503,8 @@ export default function Loans() {
                   .filter(Boolean)
                   .join(" - ") || "—"}
               </Typography>
+              {/* Lender — or, for loans linked to a Loan account, the
+                  account's Bank / Provider (the loan adopts it on save). */}
               <Typography
                 variant="caption"
                 sx={{
@@ -421,10 +517,74 @@ export default function Loans() {
                   whiteSpace: "nowrap",
                 }}
               >
-                {row.strLender || "—"}
+                {row.strLender ||
+                  loanAccounts.find((a) => a.nAccountId === row.nAccountId)?.strInstitution ||
+                  "—"}
               </Typography>
             </Box>
           </Stack>
+        );
+      },
+    },
+    {
+      id: "nAccountId",
+      label: "Account",
+      minWidth: 170,
+      align: "right",
+      format: (value, row) => {
+        /* The loan's linked Loan account — name on top, its Bank /
+           Provider + masked last 4 underneath (same shape as the
+           Ledger's Account cell, no balance). "N/A" when the loan
+           isn't linked. */
+        const account = loanAccounts.find((a) => a.nAccountId === row.nAccountId);
+        if (!account) {
+          return (
+            <Typography
+              variant="caption"
+              align="right"
+              sx={{ color: "var(--text-muted)" }}
+            >
+              N/A
+            </Typography>
+          );
+        }
+        const meta = [
+          account.strInstitution,
+          account.strLast4 ? `••••${account.strLast4}` : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return (
+          <Box sx={{ minWidth: 0, textAlign: "right" }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "var(--text-primary)",
+                fontWeight: 500,
+                lineHeight: 1.25,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {account.strName || "—"}
+            </Typography>
+            {meta && (
+              <Typography
+                variant="caption"
+                sx={{
+                  display: "block",
+                  color: "var(--text-muted)",
+                  lineHeight: 1.25,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {meta}
+              </Typography>
+            )}
+          </Box>
         );
       },
     },
@@ -703,19 +863,28 @@ export default function Loans() {
             </Tooltip>
           ) : null;
         /* Edit is only for DEFAULTED loans — an Active loan is a
-           running schedule, not something to hand-edit. Delete is also
-           hidden once the loan has at least one PAID entry: deleting
-           cascades its Ledger entries, which would erase paid history
-           (marking entries unpaid from the viewer brings it back). */
+           running schedule, not something to hand-edit. Delete shows
+           on Defaulted and Active: enabled on Defaulted (unless it
+           has paid entries, which would erase paid history), always
+           disabled on Active (end the loan first). Completed loans
+           hide it entirely. */
         const canEdit = row.cStatus === "DEFAULTED";
         const hasPaid = paidLoanIds.has(row.nLoanId);
+        const showDelete = row.cStatus === "ACTIVE" || canEdit;
+        const deleteLocked = row.cStatus === "ACTIVE" || (canEdit && hasPaid);
         return (
           <RowActions
             label={row.strName || "loan"}
             leading={viewButton}
             extra={statusButton}
             onEdit={canEdit ? () => handleOpenEdit(row) : undefined}
-            onDelete={canEdit && !hasPaid ? () => handleDeleteLoan(row.nLoanId) : undefined}
+            onDelete={showDelete ? () => handleDeleteLoan(row.nLoanId) : undefined}
+            deleteDisabled={deleteLocked}
+            deleteDisabledReason={
+              row.cStatus === "ACTIVE"
+                ? "End the loan first (Completed or Defaulted)"
+                : "Has paid entries — can't be deleted"
+            }
           />
         );
       },
@@ -735,12 +904,31 @@ export default function Loans() {
   const contentActions = useMemo(
     () => (
       <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+        {/* Same outlined chip style as the Ledger/Accounts Add buttons. */}
         <Button
-          variant="contained"
           startIcon={<AddIcon />}
           onClick={handleOpenAdd}
           aria-label="Add loan"
-          sx={ADD_BUTTON_SX}
+          sx={{
+            height: { xs: 30, sm: 34 },
+            minHeight: { xs: 30, sm: 34 },
+            px: { xs: 0.75, sm: 1.5 },
+            borderRadius: 2.5,
+            border: "1px solid",
+            borderColor: "var(--border-medium)",
+            backgroundColor: "var(--bg-secondary)",
+            color: "var(--accent)",
+            fontWeight: 600,
+            fontSize: { xs: "0.7rem", sm: "0.78rem" },
+            textTransform: "none",
+            whiteSpace: "nowrap",
+            "& .MuiButton-startIcon": { mr: { xs: 0, sm: 0.5 } },
+            "& svg": { fontSize: { xs: 15, sm: 17 } },
+            "&:hover": {
+              borderColor: "var(--accent)",
+              backgroundColor: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            },
+          }}
         >
           <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
             Loan
@@ -872,6 +1060,13 @@ export default function Loans() {
         rowKey="nLoanId"
         searchPlaceholder="Search by name or lender..."
         searchFields={["strName", "strLender"]}
+        /* Rows of loans with an installment due this month get a soft
+           amber tint — the "Billed" bill-state color from the Ledger. */
+        rowSx={(row) =>
+          billedLoanIds.has(row.nLoanId)
+            ? { backgroundColor: "color-mix(in srgb, #d97706 9%, transparent)" }
+            : undefined
+        }
       />
 
       {/* Tooltip-style popover on the Actions status button. */}
@@ -904,13 +1099,23 @@ export default function Loans() {
                 dense
                 selected={isCurrent}
                 onClick={() => handleStatusChange(statusRow, opt.value)}
-                sx={{ borderRadius: 1.5, gap: 1 }}
+                sx={{
+                  borderRadius: 1.5,
+                  gap: 1,
+                  color: "var(--text-primary)",
+                  "&:hover": {
+                    backgroundColor: "color-mix(in srgb, var(--text-primary) 8%, transparent)",
+                  },
+                  "&.Mui-selected": {
+                    backgroundColor: "color-mix(in srgb, var(--text-primary) 12%, transparent)",
+                  },
+                }}
               >
                 <Box
                   aria-hidden
                   sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: meta.color, flexShrink: 0 }}
                 />
-                <Typography variant="body2" sx={{ flex: 1 }}>
+                <Typography variant="body2" sx={{ flex: 1, color: "var(--text-primary)" }}>
                   {opt.label}
                 </Typography>
                 {isCurrent && <CheckIcon sx={{ fontSize: 16, color: "var(--text-muted)" }} />}
@@ -927,6 +1132,9 @@ export default function Loans() {
         formData={formData}
         onChange={handleFieldChange}
         saving={saving}
+        accounts={loanAccounts}
+        loans={loans}
+        paidCounts={paidCounts}
       />
 
       {/* A loan's Ledger entries (Active loans, via the 👁 button).

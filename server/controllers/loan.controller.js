@@ -29,6 +29,8 @@ function validate(body, { isNew = false } = {}) {
   v.integer("nPaymentDay", "Payment day", { min: 1, max: 31 });
   v.oneOf("cStatus", "Status", STATUSES, { required: true, fallback: "ACTIVE" });
   v.text("strNotes", "Notes", { max: 500 });
+  /* Optional link to a Loan-type account on the Accounts page. */
+  v.integer("nAccountId", "Account", { min: 1 });
 
   return v;
 }

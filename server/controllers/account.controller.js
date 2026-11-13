@@ -9,7 +9,7 @@ import * as accountModel from "../models/account.model.js";
 import { getOwnerUuid } from "../utils/owner.js";
 import { parseId, sendError, sendValidation, createValidator } from "../utils/finance.js";
 
-const ACCOUNT_TYPES = ["CASH", "BANK", "DEBIT", "CREDIT", "EWALLET"];
+const ACCOUNT_TYPES = ["CASH", "BANK", "DEBIT", "CREDIT", "LOAN", "EWALLET"];
 
 /** 401 when there is no signed-in session; otherwise the owner uuid. */
 async function requireOwner(req, res) {
@@ -34,9 +34,17 @@ function validate(body, { isNew = false } = {}) {
   v.integer("nStatementDay", "Statement day", { min: 1, max: 31 });
   v.integer("nDueDay", "Due day", { min: 1, max: 31 });
   v.bool("bIsActive", { fallback: true });
+  /* Loan accounts: whether payments on fully-completed loans add
+     back into the account's balance. */
+  v.bool("bIsDebitedAfterFullPayment", { fallback: false });
 
-  /* Only credit cards can carry a credit limit (matches the DB check). */
-  if (v.values.cAccountType && v.values.cAccountType !== "CREDIT") {
+  /* Only credit cards AND Loan accounts can carry a limit /
+     statement / due day (Loan accounts use the same shape). */
+  if (
+    v.values.cAccountType &&
+    v.values.cAccountType !== "CREDIT" &&
+    v.values.cAccountType !== "LOAN"
+  ) {
     v.values.dCreditLimit = null;
     v.values.nStatementDay = null;
     v.values.nDueDay = null;

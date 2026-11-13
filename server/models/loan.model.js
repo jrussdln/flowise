@@ -19,6 +19,7 @@ export const WRITABLE_FIELDS = [
   "nPaymentDay",
   "cStatus",
   "strNotes",
+  "nAccountId",
 ];
 
 export async function findAll(ownerId) {
